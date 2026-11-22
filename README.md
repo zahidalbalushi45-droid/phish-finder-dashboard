@@ -1,8 +1,21 @@
 # Phish Finder dashboard
 
-Phone-friendly control page for a **private** Phish Finder repo: add / edit / pause /
-remove brands, change the scan schedule (Bahrain time), start scans, follow runs and
-read the latest findings.
+Phone-first brand-protection console for a **private** Phish Finder repo (installable,
+light/dark):
+
+- **Home** – what needs attention now (open critical/high, new since last scan, live
+  sites), per-brand severity mix and trend, live scan progress, Scan now.
+- **Findings** – search, filter (brand, status, new, critical/high, live, login form,
+  on feeds), sort, CSV export; a detail sheet per finding with registrar, hosting, IP,
+  abuse contact, reasons, and one-tap takedown actions (e-mail the host's abuse desk
+  with a ready-made report, Google Safe Browsing, Netcraft, Microsoft, APWG, registrar
+  lookup) and investigation links (urlscan, VirusTotal, crt.sh, WHOIS, Wayback).
+- **Triage** – Open → Reviewing → Reported → Taken down, False positive (added to the
+  brand's `ignore` list so scans stop reporting it), Ours (added to `official`), notes;
+  stored in `triage.json` / `brands.yml` in the private repo.
+- **Brands** – add / edit / pause / remove; **Schedule** – daily / some days / every
+  N hours / off in Bahrain time, depth, free-minutes meter; **Scans** – history with
+  NEW counts, live steps, stop / retry; full HTML report viewer.
 
 **This repository contains only code.** No brands, findings, reports or keys are
 stored here. The page talks straight from your browser to `api.github.com` using a
