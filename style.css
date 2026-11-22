@@ -60,7 +60,8 @@ details.adv{margin:4px 0}details.adv summary{cursor:pointer}
 .seg{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}.seg button{flex:1 1 auto}.seg button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
 .chips{display:flex;gap:6px;overflow-x:auto;padding:8px 0 2px;scrollbar-width:none}.chips::-webkit-scrollbar{display:none}
 .chips button{white-space:nowrap;font-size:13px;padding:6px 11px;border-radius:99px}.chips button.on{background:var(--priSoft);border-color:var(--pri);color:var(--pri);font-weight:600}
-.filters{position:sticky;top:56px;z-index:4}
+.filters{padding:10px}
+.frow{display:grid;grid-template-columns:1.1fr 1.1fr 1fr;gap:6px}.frow select{margin:0;font-size:14px;padding:9px 8px}
 .filters input{margin:0 0 8px}
 .days{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.days button{flex:1 0 12%;padding:9px 0}.days button.on{background:var(--priSoft);border-color:var(--pri);color:var(--pri);font-weight:700}
 .preview{background:var(--priSoft);border-radius:12px;padding:10px 12px;font-size:14px;margin:8px 0}

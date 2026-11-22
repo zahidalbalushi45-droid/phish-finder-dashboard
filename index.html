@@ -74,9 +74,9 @@
   <section id="findings" class="view" hidden>
     <div class="filters card">
       <input id="fSearch" type="search" placeholder="Search domain, IP, registrar, hosting…" autocapitalize="off" spellcheck="false">
-      <div class="row">
-        <select id="fBrand" class="grow" aria-label="Brand"></select>
-        <select id="fStatus" class="grow" aria-label="Status">
+      <div class="frow">
+        <select id="fBrand" aria-label="Brand"></select>
+        <select id="fStatus" aria-label="Status">
           <option value="action">Needs action</option><option value="all">All statuses</option>
           <option value="open">Open</option><option value="reviewing">Reviewing</option><option value="reported">Reported</option>
           <option value="taken_down">Taken down</option><option value="false_positive">False positive</option><option value="ours">Ours</option>
@@ -87,7 +87,7 @@
         <button data-chip="new">🆕 New</button><button data-chip="crit">🔥 Critical/High</button><button data-chip="live">🟢 Live</button><button data-chip="login">🔑 Login form</button><button data-chip="feeds">📛 On feeds</button>
       </div>
     </div>
-    <div class="row between"><span id="fCount" class="muted small"></span><button id="fExport" class="small">⬇ Export CSV</button></div>
+    <div class="row between"><span id="fCount" class="muted small"></span><button id="fExport" class="small">⬇ CSV</button></div>
     <div id="fList"></div>
     <button id="fMore" class="wide" hidden>Show more</button>
   </section>

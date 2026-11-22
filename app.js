@@ -47,6 +47,10 @@
     var u = L.safeUrl(url);
     return u ? h("a", { href: u, target: "_blank", rel: "noopener noreferrer nofollow", class: cls || null, text: text || u, onclick: function (e) { e.stopPropagation(); } }) : h("span", { text: text || url || "" });
   }
+  function mailLink(to, subject, body, text) {
+    if (!/^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i.test(to || "")) return null;
+    return h("a", { href: "mailto:" + to + "?subject=" + encodeURIComponent(subject) + "&body=" + encodeURIComponent(body), text: text, onclick: function (e) { e.stopPropagation(); } });
+  }
   function clear(el) { while (el.firstChild) el.removeChild(el.firstChild); return el; }
   function msg(el, text, kind) { el.textContent = text || ""; el.className = "msg" + (kind ? " " + kind : ""); }
   var toastTimer;
@@ -330,7 +334,7 @@
   }
   function renderAttention() {
     var box = clear($("attention"));
-    var fs = allFindings().filter(function (f) { return needsAction(f) && isCritHigh(f); }).sort(function (a, b) { return (b.is_new - a.is_new) || (b.score - a.score); });
+    var fs = allFindings().filter(function (f) { return needsAction(f) && isCritHigh(f); }).sort(function (a, b) { return (b.score - a.score) || (b.is_new - a.is_new); });
     if (!S.summary) return;
     var card = h("div", { class: "card" }, h("div", { class: "row between" }, h("h2", { text: fs.length ? "Needs attention" : "All clear" }), fs.length ? h("button", { class: "small", onclick: function () { setFilter({ status: "action", chips: { crit: true } }); } }, "See all " + fs.length + " →") : null));
     if (!fs.length) card.appendChild(h("p", { class: "muted small", text: "No open critical or high findings. Nice." }));
@@ -485,7 +489,7 @@
       { label: "Registrar", key: "registrar" }, { label: "Registered", key: "created" }, { label: "Google Safe Browsing", key: "gsb" },
       { label: "Reasons", get: function (f) { return (f.reasons || []).join("; "); } }, { label: "Note", get: function (f) { return (S.triage.hosts[f.host] || {}).note || ""; } }
     ];
-    var d = new Date().toISOString().slice(0, 10);
+    var d = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bahrain" }).format(new Date());
     download("phish-finder-findings-" + d + ".csv", "\ufeff" + L.toCSV(list, cols), "text/csv;charset=utf-8");
   });
 
@@ -520,11 +524,11 @@
 
     inner.appendChild(h("h3", { text: "Report & take down" }));
     var ag = h("div", { class: "actions-grid" });
-    if (f.abuse) ag.appendChild(link("mailto:" + encodeURIComponent(f.abuse) + "?subject=" + encodeURIComponent(td.subject) + "&body=" + encodeURIComponent(td.body), "✉️ E-mail host abuse"));
+    append(ag, mailLink(f.abuse, td.subject, td.body, "✉️ E-mail hosting abuse"));
     ag.appendChild(link("https://safebrowsing.google.com/safebrowsing/report_phish/?url=" + encodeURIComponent(url), "🛡 Google Safe Browsing"));
     ag.appendChild(link("https://report.netcraft.com/report", "🕸 Netcraft"));
     ag.appendChild(link("https://www.microsoft.com/en-us/wdsi/support/report-unsafe-site-guest", "🪟 Microsoft SmartScreen"));
-    ag.appendChild(link("mailto:reportphishing@apwg.org?subject=" + encodeURIComponent(td.subject) + "&body=" + encodeURIComponent(td.body), "🎣 APWG (e-mail)"));
+    append(ag, mailLink("reportphishing@apwg.org", td.subject, td.body, "🎣 APWG (e-mail)"));
     ag.appendChild(link("https://lookup.icann.org/en/lookup?name=" + encodeURIComponent(f.reg), "📇 Registrar contact"));
     ag.appendChild(h("button", { onclick: function () { copy(td.subject + "\n\n" + td.body); } }, "📋 Copy takedown text"));
     ag.appendChild(h("button", { onclick: function () { copy(url); } }, "🔗 Copy link"));
