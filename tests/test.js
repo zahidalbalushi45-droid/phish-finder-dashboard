@@ -82,7 +82,7 @@ t("brands.yml dump matches python brands_cfg byte-for-byte", () => {
   const repo = process.env.PF_REPO || "/workspace/phish-finder-repo";
   const samples = [
     fs.readFileSync(path.join(repo, "brands.yml"), "utf8"),
-    "brands:\n  - {name: Example Bank, domain: ExampleBank.com, keywords: [exbank, 'ex-bank'], country: no, enabled: no}\n  - name: \"1 Bank: Gulf\"\n    domain: 1bank.bh\n    days: 45\n    official: \"a.com,b.com\"\n",
+    "brands:\n  - {name: Example Bank, domain: ExampleBank.com, keywords: [exbank, 'ex-bank'], country: no, enabled: no}\n  - name: \"1 Bank: Gulf\"\n    domain: 1bank.bh\n    days: 45\n    official: \"a.com,b.com\"\n    ignore: \"bad.com, x.y.com\"\n",
     "settings: {mode: full}\nbrands: []\n",
   ];
   for (const s of samples) {
@@ -112,5 +112,16 @@ t("zip reader", () => {
   assert.strictEqual(e[0].name, "fawry/latest.html");
   assert.strictEqual(e[0].method, 8);
   assert.strictEqual(require("zlib").inflateRawSync(Buffer.from(e[0].data)).toString(), "<h1>hi</h1>\n");
+});
+t("ignore list + csv + takedown", () => {
+  assert.strictEqual(L.addToList("a.com, b.com", "c.com"), "a.com, b.com, c.com");
+  assert.strictEqual(L.addToList("a.com", "a.com"), "a.com");
+  assert.strictEqual(L.removeFromList("a.com, b.com", "a.com"), "b.com");
+  const csv = L.toCSV([{ h: "=cmd()", r: ["x", "y"], q: 'a"b,c' }], [{ label: "H", key: "h" }, { label: "R", key: "r" }, { label: "Q", key: "q" }]);
+  assert.strictEqual(csv, 'H,R,Q\r\n\'=cmd(),x; y,"a""b,c"\r\n');
+  const t = L.takedownText({ host: "ajeer.xyz", url: "https://ajeer.xyz/", ip: "1.2.3.4", hosting: "HostPapa", registrar: "Dynadot", created: "2026-11-20", reasons: ["+20 domain registered 2 days ago"] }, { name: "Ajeer", domain: "ajeer.com.sa" });
+  assert.ok(t.subject.includes("ajeer.xyz") && t.body.includes("- domain registered 2 days ago") && t.body.includes("HostPapa"));
+  const yml = L.dumpBrands({ brands: [{ name: "A", domain: "a.com", ignore: "x.com,y.com" }] });
+  assert.ok(yml.includes("    ignore: x.com, y.com\n"));
 });
 console.log(`\n${n} test groups passed`);

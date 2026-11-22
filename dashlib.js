@@ -190,12 +190,13 @@
     "#   Required:  name, domain",
     "#   Optional:  official  - other domains the brand owns (comma-separated)",
     "#              keywords  - extra search words (comma-separated)",
+    '#              ignore    - hosts marked "false positive" (never reported again)',
     "#              country   - 2-letter code (auto-detected from a ccTLD otherwise)",
     "#              days      - override the mode's look-back window for this brand",
     "#              enabled   - false = keep the brand but skip it in scheduled scans",
     "#   settings.mode - depth of scheduled scans: quick / normal / full"
   ].join("\n");
-  var FIELD_ORDER = ["name", "domain", "official", "keywords", "country", "days", "enabled"];
+  var FIELD_ORDER = ["name", "domain", "official", "keywords", "ignore", "country", "days", "enabled"];
   var RESERVED = ["y", "yes", "n", "no", "true", "false", "on", "off", "null", "nil", "none"];
 
   function csv(v) {
@@ -237,7 +238,7 @@
     var out = {};
     out.name = String(b.name || "").trim();
     out.domain = String(b.domain || "").trim().toLowerCase();
-    ["official", "keywords"].forEach(function (k) { var v = csv(b[k]); if (v) out[k] = v; });
+    ["official", "keywords", "ignore"].forEach(function (k) { var v = csv(b[k]); if (v) out[k] = v; });
     if (b.country === false) b = Object.assign({}, b, { country: "no" });
     if (b.country !== null && b.country !== undefined && b.country !== "") out.country = String(b.country).trim().toLowerCase();
     if (b.days !== null && b.days !== undefined && b.days !== "") { var d = parseInt(b.days, 10); if (!isNaN(d)) out.days = d; }
@@ -287,6 +288,42 @@
     if (country) b.country = country; else delete b.country;
     if (f.enabled === false) b.enabled = false; else delete b.enabled;
     return b;
+  }
+
+  function csvList(v) { return csv(v).split(",").map(function (x) { return x.trim(); }).filter(Boolean); }
+  function addToList(v, item) { var l = csvList(v); if (l.indexOf(item) < 0) l.push(item); return l.join(", "); }
+  function removeFromList(v, item) { return csvList(v).filter(function (x) { return x !== item; }).join(", "); }
+
+  /* Spreadsheet-safe CSV (formula injection guarded). */
+  function toCSV(rows, cols) {
+    function cell(v) {
+      var s = v === null || v === undefined ? "" : Array.isArray(v) ? v.join("; ") : String(v);
+      if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+    }
+    return [cols.map(function (c) { return cell(c.label); }).join(",")].concat(rows.map(function (r) {
+      return cols.map(function (c) { return cell(typeof c.get === "function" ? c.get(r) : r[c.key]); }).join(",");
+    })).join("\r\n") + "\r\n";
+  }
+
+  function takedownText(f, brand) {
+    var lines = [
+      "Hello,",
+      "",
+      "The website below is impersonating " + brand.name + (brand.domain ? " (official site: " + brand.domain + ")" : "") +
+        " and appears to be used for phishing / fraud against its customers. Please investigate and suspend it.",
+      "",
+      "URL: " + (f.url || ("https://" + f.host)),
+    ];
+    if (f.feed_url && f.feed_url !== f.url) lines.push("Also seen at: " + f.feed_url);
+    if (f.ip) lines.push("IP address: " + f.ip + (f.hosting ? " (" + f.hosting + ")" : ""));
+    if (f.registrar) lines.push("Registrar: " + f.registrar + (f.created ? ", registered " + f.created : ""));
+    if ((f.reasons || []).length) {
+      lines.push("", "Evidence:");
+      f.reasons.forEach(function (r) { lines.push("- " + String(r).replace(/^[+-]\d+\s*/, "")); });
+    }
+    lines.push("", "Thank you.");
+    return { subject: "Phishing site impersonating " + brand.name + ": " + f.host, body: lines.join("\n") };
   }
 
   /* ---------- misc ---------- */
@@ -344,7 +381,8 @@
     buildCron: buildCron, parseCron: parseCron, readSchedule: readSchedule, readScheduleLabel: readScheduleLabel, rewriteSchedule: rewriteSchedule,
     nextRuns: nextRuns, runsPerMonth: runsPerMonth,
     parseBrands: parseBrands, dumpBrands: dumpBrands, normaliseBrand: normaliseBrand, brandFromForm: brandFromForm,
-    isEnabled: isEnabled, csv: csv, cleanDomain: cleanDomain, validDomain: validDomain, slug: slug,
+    isEnabled: isEnabled, csv: csv, csvList: csvList, addToList: addToList, removeFromList: removeFromList,
+    toCSV: toCSV, takedownText: takedownText, cleanDomain: cleanDomain, validDomain: validDomain, slug: slug,
     b64EncodeUtf8: b64EncodeUtf8, b64DecodeUtf8: b64DecodeUtf8, safeUrl: safeUrl,
     fmtBahrain: fmtBahrain, fmtDuration: fmtDuration, zipEntries: zipEntries
   };

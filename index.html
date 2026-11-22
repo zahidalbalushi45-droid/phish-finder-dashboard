@@ -4,63 +4,99 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-i1v69gc9ORP184ZvdDDjToKW4qe7f7C5rm1mCN7VQMY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.github.com https://*.blob.core.windows.net https://*.actions.githubusercontent.com https://*.githubusercontent.com; frame-src blob:; base-uri 'none'; form-action 'none'">
-<meta name="theme-color" content="#0f172a">
-<meta name="robots" content="noindex">
-<title>Phish Finder dashboard</title>
-<link rel="icon" href="data:,">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-i1v69gc9ORP184ZvdDDjToKW4qe7f7C5rm1mCN7VQMY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.github.com https://*.blob.core.windows.net https://*.actions.githubusercontent.com https://*.githubusercontent.com; frame-src blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0b1220">
+<meta name="robots" content="noindex, nofollow">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Phish Finder">
+<title>Phish Finder</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header class="top">
-  <div class="brandmark">🎣 <b>Phish Finder</b></div>
-  <div id="repoLabel" class="muted small"></div>
-  <button id="refreshBtn" class="icon" title="Refresh" hidden>⟳</button>
+  <div class="logo" aria-hidden="true"><img src="icon.svg" alt="" width="28" height="28"></div>
+  <div class="titles"><b>Phish Finder</b><span id="repoLabel" class="sub"></span></div>
+  <span id="syncDot" class="sync" title="Live"></span>
+  <button id="refreshBtn" class="icon" title="Refresh" aria-label="Refresh" hidden>↻</button>
 </header>
 
 <main id="app">
-  <!-- Connect screen -->
+  <!-- Connect -->
   <section id="connect" class="view" hidden>
+    <div class="hero">
+      <img src="icon.svg" alt="" width="64" height="64">
+      <h1>Brand protection, in your pocket</h1>
+      <p>Watch lookalike domains, phishing pages and scam sites for your brands, start scans and act on findings – from your phone.</p>
+    </div>
     <div class="card">
-      <h1>Connect your private repo</h1>
-      <p>This page only holds code. Your brands and results are read live from your <b>private</b> GitHub repo with a key that stays on this phone.</p>
+      <h2>Connect your private repo <span class="muted small">(one time, ~2 min)</span></h2>
       <ol class="steps">
-        <li>Open <a id="tokenLink" target="_blank" rel="noopener noreferrer" href="https://github.com/settings/personal-access-tokens/new">Create a GitHub key ↗</a> (sign in to GitHub if asked). Name, expiry and permissions are filled in for you.</li>
-        <li>Under <b>Repository access</b> choose <b>Only select repositories</b> and pick <b id="repoNameStep">phish-finder</b>.</li>
-        <li>Check <b>Permissions</b> shows: <b>Actions</b>, <b>Contents</b> and <b>Workflows</b> = Read and write (Metadata = Read is automatic). Add any that are missing.</li>
-        <li>Tap <b>Generate token</b>, then <b>copy</b> the key (starts with <code>github_pat_</code>).</li>
+        <li><a id="tokenLink" class="btnlink" target="_blank" rel="noopener noreferrer" href="https://github.com/settings/personal-access-tokens/new">1 · Create a GitHub key ↗</a><br><span class="muted small">Sign in if asked. Name, expiry and permissions are filled in for you.</span></li>
+        <li>Under <b>Repository access</b> pick <b>Only select repositories</b> → <b id="repoNameStep">phish-finder</b>.</li>
+        <li>Check <b>Permissions</b>: <b>Actions</b>, <b>Contents</b>, <b>Workflows</b> = <i>Read and write</i>.</li>
+        <li>Tap <b>Generate token</b> and <b>copy</b> it (starts with <code>github_pat_</code>).</li>
         <li>Paste it below and tap <b>Connect</b>.</li>
       </ol>
-      <label>Repository<input id="repoInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="owner/phish-finder"></label>
       <label>GitHub key<input id="tokenInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <details class="adv"><summary class="muted small">Repository: <span id="repoShow"></span> (change)</summary>
+        <label>Repository<input id="repoInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="owner/phish-finder"></label>
+      </details>
       <button id="connectBtn" class="primary wide">Connect</button>
       <p id="connectMsg" class="msg"></p>
-      <p class="muted small">The key is saved only in this browser (you can remove it any time with “Disconnect”). Nothing is sent anywhere except api.github.com.</p>
+      <p class="muted small">🔒 This page holds only code. Your brands and results stay in your private repo and are loaded live from GitHub. The key is stored only in this browser and only ever sent to api.github.com.</p>
     </div>
   </section>
 
   <!-- Home -->
   <section id="home" class="view" hidden>
+    <div id="tiles" class="tiles"></div>
+    <div id="liveRun"></div>
+    <div id="attention"></div>
     <div class="card">
-      <h2>Scan now</h2>
+      <div class="row between"><h2>Scan now</h2><span class="muted small" id="nextScanLine"></span></div>
       <div class="row">
         <label class="grow">Brand<select id="scanBrand"></select></label>
         <label>Depth<select id="scanMode"><option value="quick">Quick</option><option value="normal">Normal</option><option value="full">Full</option></select></label>
       </div>
       <button id="scanBtn" class="primary wide">▶ Start scan</button>
       <p id="scanMsg" class="msg"></p>
-      <p class="muted small" id="nextScanLine"></p>
     </div>
-    <div id="liveRun"></div>
-    <h2 class="section">Latest results</h2>
-    <div id="results"><p class="muted">Loading…</p></div>
+    <div class="row between"><h2 class="section">Brands</h2><span class="muted small" id="updatedLine"></span></div>
+    <div id="results"><div class="skeleton"></div><div class="skeleton"></div></div>
+  </section>
+
+  <!-- Findings -->
+  <section id="findings" class="view" hidden>
+    <div class="filters card">
+      <input id="fSearch" type="search" placeholder="Search domain, IP, registrar, hosting…" autocapitalize="off" spellcheck="false">
+      <div class="row">
+        <select id="fBrand" class="grow" aria-label="Brand"></select>
+        <select id="fStatus" class="grow" aria-label="Status">
+          <option value="action">Needs action</option><option value="all">All statuses</option>
+          <option value="open">Open</option><option value="reviewing">Reviewing</option><option value="reported">Reported</option>
+          <option value="taken_down">Taken down</option><option value="false_positive">False positive</option><option value="ours">Ours</option>
+        </select>
+        <select id="fSort" aria-label="Sort"><option value="score">Top score</option><option value="age">Newest domains</option><option value="host">A–Z</option></select>
+      </div>
+      <div class="chips" id="fChips">
+        <button data-chip="new">🆕 New</button><button data-chip="crit">🔥 Critical/High</button><button data-chip="live">🟢 Live</button><button data-chip="login">🔑 Login form</button><button data-chip="feeds">📛 On feeds</button>
+      </div>
+    </div>
+    <div class="row between"><span id="fCount" class="muted small"></span><button id="fExport" class="small">⬇ Export CSV</button></div>
+    <div id="fList"></div>
+    <button id="fMore" class="wide" hidden>Show more</button>
   </section>
 
   <!-- Brands -->
   <section id="brands" class="view" hidden>
     <div class="row between"><h2 class="section">Brands</h2><button id="addBrandBtn" class="primary">＋ Add brand</button></div>
-    <div id="brandList"><p class="muted">Loading…</p></div>
-    <p class="muted small">Paused brands stay in the list but are skipped by automatic scans. You can still scan them with “Scan”.</p>
+    <div id="brandList"><div class="skeleton"></div></div>
+    <p class="muted small">Paused brands stay in the list but are skipped by automatic scans; you can still scan them by hand.</p>
   </section>
 
   <!-- Schedule -->
@@ -72,7 +108,7 @@
         <button data-freq="daily">Daily</button><button data-freq="weekdays">Some days</button><button data-freq="hours">Every few hours</button><button data-freq="off">Off</button>
       </div>
       <div id="schedFields">
-        <label id="timeWrap">Time (Bahrain)<input id="schedTime" type="time" value="07:00"></label>
+        <label id="timeWrap"><span id="timeLbl">Time (Bahrain)</span><input id="schedTime" type="time" value="07:00"></label>
         <label id="everyWrap">Every<select id="schedEvery"></select></label>
         <div id="daysWrap" class="days"></div>
       </div>
@@ -81,29 +117,44 @@
         <option value="normal">Normal – recommended, last 30 days</option>
         <option value="full">Full – deepest, last 90 days (slow)</option>
       </select></label>
-      <p id="schedPreview" class="preview"></p>
-      <p id="schedCost" class="muted small"></p>
+      <div id="schedPreview" class="preview"></div>
+      <div id="schedCost" class="meter"></div>
       <button id="schedSave" class="primary wide">Save schedule</button>
       <p id="schedMsg" class="msg"></p>
     </div>
+    <div class="card small muted">
+      <b>Good to know</b>
+      <ul>
+        <li>Times are Bahrain time (UTC+3). GitHub may start scheduled scans 5–30 min late when busy.</li>
+        <li>Private repos get 2,000 free GitHub Actions minutes a month. The meter above estimates your use.</li>
+        <li>Each scan compares with the previous one, so “NEW” means new since the last scan.</li>
+      </ul>
+    </div>
   </section>
 
-  <!-- Runs -->
+  <!-- Scans + settings -->
   <section id="runs" class="view" hidden>
     <h2 class="section">Recent scans</h2>
-    <div id="runList"><p class="muted">Loading…</p></div>
+    <div id="runList"><div class="skeleton"></div></div>
+    <h2 class="section">Settings</h2>
     <div class="card">
-      <p class="small">Signed in to <span id="whoami"></span>.</p>
-      <button id="disconnectBtn" class="danger">Disconnect this phone</button>
+      <div class="kv"><span>Repository</span><span id="setRepo"></span></div>
+      <div class="kv"><span>Signed in as</span><span id="whoami"></span></div>
+      <div class="kv"><span>Key</span><span id="keyInfo"></span></div>
+      <div class="linkrow" id="setLinks"></div>
+      <p class="muted small">Alerts (Telegram / e-mail) for new findings: add the secrets listed in the repo README under <i>Settings → Secrets and variables → Actions</i>.</p>
+      <p class="muted small">Add this page to your home screen: Share → <b>Add to Home Screen</b> (iPhone) or ⋮ → <b>Install app</b> (Android).</p>
+      <button id="disconnectBtn" class="danger">Disconnect this device</button>
     </div>
   </section>
 </main>
 
 <nav class="tabs" id="tabs" hidden>
-  <button data-view="home" class="on">🏠<span>Home</span></button>
-  <button data-view="brands">🏷️<span>Brands</span></button>
-  <button data-view="schedule">⏰<span>Schedule</span></button>
-  <button data-view="runs">📜<span>Scans</span></button>
+  <button data-view="home" class="on"><i>⌂</i><span>Home</span></button>
+  <button data-view="findings"><i>⚠</i><span>Findings</span><b id="badgeFindings" class="badge" hidden></b></button>
+  <button data-view="brands"><i>◎</i><span>Brands</span></button>
+  <button data-view="schedule"><i>◷</i><span>Schedule</span></button>
+  <button data-view="runs"><i>≡</i><span>Scans</span></button>
 </nav>
 
 <!-- Brand editor -->
@@ -111,15 +162,21 @@
   <form method="dialog" id="brandForm">
     <h2 id="brandDlgTitle">Add brand</h2>
     <label>Brand name *<input name="name" required placeholder="National Bank of Bahrain"></label>
-    <label>Main website domain *<input name="domain" required autocapitalize="off" spellcheck="false" placeholder="nbbonline.com"></label>
+    <label>Main website domain *<input name="domain" required autocapitalize="off" spellcheck="false" inputmode="url" placeholder="nbbonline.com"></label>
     <label>Other official domains <span class="muted small">(comma-separated)</span><input name="official" autocapitalize="off" spellcheck="false" placeholder="nbb.bh, nbb.com.bh"></label>
-    <label>Extra keywords <span class="muted small">(comma-separated)</span><input name="keywords" autocapitalize="off" spellcheck="false" placeholder="nbb, nationalbank"></label>
+    <label>Extra keywords <span class="muted small">(comma-separated, any language)</span><input name="keywords" autocapitalize="off" spellcheck="false" placeholder="nbb, nationalbank"></label>
     <label>Country code <span class="muted small">(2 letters, optional)</span><input name="country" maxlength="2" autocapitalize="off" spellcheck="false" placeholder="bh"></label>
+    <label>Ignored hosts <span class="muted small">(false positives, comma-separated)</span><input name="ignore" autocapitalize="off" spellcheck="false" placeholder=""></label>
     <label class="check"><input type="checkbox" name="enabled" checked> Include in automatic scans</label>
-    <label class="check" id="scanAfterWrap"><input type="checkbox" name="scanAfter" checked> Start a quick scan after saving</label>
+    <label class="check" id="scanAfterWrap"><input type="checkbox" name="scanAfter" checked> Start the first scan right after saving</label>
     <p id="brandMsg" class="msg"></p>
     <div class="row end"><button type="button" id="brandCancel">Cancel</button><button type="submit" class="primary" id="brandSave">Save</button></div>
   </form>
+</dialog>
+
+<!-- Finding detail -->
+<dialog id="findingDlg" class="sheet">
+  <div id="findingBody"></div>
 </dialog>
 
 <!-- Report viewer -->
@@ -128,7 +185,7 @@
   <iframe id="reportFrame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="Report"></iframe>
 </div>
 
-<div id="toast" hidden></div>
+<div id="toast" role="status" hidden></div>
 <script src="js-yaml.min.js"></script>
 <script src="dashlib.js"></script>
 <script src="app.js"></script>
