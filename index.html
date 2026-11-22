@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-i1v69gc9ORP184ZvdDDjToKW4qe7f7C5rm1mCN7VQMY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.github.com https://*.blob.core.windows.net https://*.actions.githubusercontent.com https://*.githubusercontent.com; frame-src blob:; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#0f172a">
+<meta name="robots" content="noindex">
+<title>Phish Finder dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brandmark">🎣 <b>Phish Finder</b></div>
+  <div id="repoLabel" class="muted small"></div>
+  <button id="refreshBtn" class="icon" title="Refresh" hidden>⟳</button>
+</header>
+
+<main id="app">
+  <!-- Connect screen -->
+  <section id="connect" class="view" hidden>
+    <div class="card">
+      <h1>Connect your private repo</h1>
+      <p>This page only holds code. Your brands and results are read live from your <b>private</b> GitHub repo with a key that stays on this phone.</p>
+      <ol class="steps">
+        <li>Open <a id="tokenLink" target="_blank" rel="noopener noreferrer" href="https://github.com/settings/personal-access-tokens/new">Create a GitHub key ↗</a> (sign in to GitHub if asked). Name, expiry and permissions are filled in for you.</li>
+        <li>Under <b>Repository access</b> choose <b>Only select repositories</b> and pick <b id="repoNameStep">phish-finder</b>.</li>
+        <li>Check <b>Permissions</b> shows: <b>Actions</b>, <b>Contents</b> and <b>Workflows</b> = Read and write (Metadata = Read is automatic). Add any that are missing.</li>
+        <li>Tap <b>Generate token</b>, then <b>copy</b> the key (starts with <code>github_pat_</code>).</li>
+        <li>Paste it below and tap <b>Connect</b>.</li>
+      </ol>
+      <label>Repository<input id="repoInput" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="owner/phish-finder"></label>
+      <label>GitHub key<input id="tokenInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_…"></label>
+      <button id="connectBtn" class="primary wide">Connect</button>
+      <p id="connectMsg" class="msg"></p>
+      <p class="muted small">The key is saved only in this browser (you can remove it any time with “Disconnect”). Nothing is sent anywhere except api.github.com.</p>
+    </div>
+  </section>
+
+  <!-- Home -->
+  <section id="home" class="view" hidden>
+    <div class="card">
+      <h2>Scan now</h2>
+      <div class="row">
+        <label class="grow">Brand<select id="scanBrand"></select></label>
+        <label>Depth<select id="scanMode"><option value="quick">Quick</option><option value="normal">Normal</option><option value="full">Full</option></select></label>
+      </div>
+      <button id="scanBtn" class="primary wide">▶ Start scan</button>
+      <p id="scanMsg" class="msg"></p>
+      <p class="muted small" id="nextScanLine"></p>
+    </div>
+    <div id="liveRun"></div>
+    <h2 class="section">Latest results</h2>
+    <div id="results"><p class="muted">Loading…</p></div>
+  </section>
+
+  <!-- Brands -->
+  <section id="brands" class="view" hidden>
+    <div class="row between"><h2 class="section">Brands</h2><button id="addBrandBtn" class="primary">＋ Add brand</button></div>
+    <div id="brandList"><p class="muted">Loading…</p></div>
+    <p class="muted small">Paused brands stay in the list but are skipped by automatic scans. You can still scan them with “Scan”.</p>
+  </section>
+
+  <!-- Schedule -->
+  <section id="schedule" class="view" hidden>
+    <div class="card">
+      <h2>Automatic scans</h2>
+      <p class="muted small" id="schedCurrent"></p>
+      <div class="seg" id="freqSeg">
+        <button data-freq="daily">Daily</button><button data-freq="weekdays">Some days</button><button data-freq="hours">Every few hours</button><button data-freq="off">Off</button>
+      </div>
+      <div id="schedFields">
+        <label id="timeWrap">Time (Bahrain)<input id="schedTime" type="time" value="07:00"></label>
+        <label id="everyWrap">Every<select id="schedEvery"></select></label>
+        <div id="daysWrap" class="days"></div>
+      </div>
+      <label>Depth of automatic scans<select id="schedMode">
+        <option value="quick">Quick – fastest, last 14 days</option>
+        <option value="normal">Normal – recommended, last 30 days</option>
+        <option value="full">Full – deepest, last 90 days (slow)</option>
+      </select></label>
+      <p id="schedPreview" class="preview"></p>
+      <p id="schedCost" class="muted small"></p>
+      <button id="schedSave" class="primary wide">Save schedule</button>
+      <p id="schedMsg" class="msg"></p>
+    </div>
+  </section>
+
+  <!-- Runs -->
+  <section id="runs" class="view" hidden>
+    <h2 class="section">Recent scans</h2>
+    <div id="runList"><p class="muted">Loading…</p></div>
+    <div class="card">
+      <p class="small">Signed in to <span id="whoami"></span>.</p>
+      <button id="disconnectBtn" class="danger">Disconnect this phone</button>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs" id="tabs" hidden>
+  <button data-view="home" class="on">🏠<span>Home</span></button>
+  <button data-view="brands">🏷️<span>Brands</span></button>
+  <button data-view="schedule">⏰<span>Schedule</span></button>
+  <button data-view="runs">📜<span>Scans</span></button>
+</nav>
+
+<!-- Brand editor -->
+<dialog id="brandDlg">
+  <form method="dialog" id="brandForm">
+    <h2 id="brandDlgTitle">Add brand</h2>
+    <label>Brand name *<input name="name" required placeholder="National Bank of Bahrain"></label>
+    <label>Main website domain *<input name="domain" required autocapitalize="off" spellcheck="false" placeholder="nbbonline.com"></label>
+    <label>Other official domains <span class="muted small">(comma-separated)</span><input name="official" autocapitalize="off" spellcheck="false" placeholder="nbb.bh, nbb.com.bh"></label>
+    <label>Extra keywords <span class="muted small">(comma-separated)</span><input name="keywords" autocapitalize="off" spellcheck="false" placeholder="nbb, nationalbank"></label>
+    <label>Country code <span class="muted small">(2 letters, optional)</span><input name="country" maxlength="2" autocapitalize="off" spellcheck="false" placeholder="bh"></label>
+    <label class="check"><input type="checkbox" name="enabled" checked> Include in automatic scans</label>
+    <label class="check" id="scanAfterWrap"><input type="checkbox" name="scanAfter" checked> Start a quick scan after saving</label>
+    <p id="brandMsg" class="msg"></p>
+    <div class="row end"><button type="button" id="brandCancel">Cancel</button><button type="submit" class="primary" id="brandSave">Save</button></div>
+  </form>
+</dialog>
+
+<!-- Report viewer -->
+<div id="reportView" hidden>
+  <div class="reportbar"><b id="reportTitle">Report</b><span class="grow"></span><a id="reportDownload" download>Download</a><button id="reportClose">✕ Close</button></div>
+  <iframe id="reportFrame" sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerpolicy="no-referrer" title="Report"></iframe>
+</div>
+
+<div id="toast" hidden></div>
+<script src="js-yaml.min.js"></script>
+<script src="dashlib.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

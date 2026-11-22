@@ -1,0 +1,141 @@
+# Scheduled (and on-demand) Phish Finder scan.
+# The schedule block below is rewritten by the Phish Finder dashboard
+# (Schedule tab). Cron times are UTC; Bahrain is UTC+3.
+name: Phish scan
+
+on:
+  schedule:
+    # Daily at 07:00 Bahrain time
+    - cron: "0 4 * * *"
+  workflow_dispatch:
+    inputs:
+      brand:
+        description: "Scan only this brand (empty = every brand in brands.yml)"
+        required: false
+        default: ""
+        type: string
+      domain:
+        description: "Official domain (needed if the brand is not already in brands.yml)"
+        required: false
+        default: ""
+        type: string
+      mode:
+        description: "Scan depth. 'default' = settings.mode in brands.yml (normal unless changed in the dashboard)."
+        required: false
+        default: default
+        type: choice
+        options:
+          - default
+          - quick
+          - normal
+          - full
+
+# Only one scan at a time so the state branch does not race.
+concurrency:
+  group: phish-scan
+  cancel-in-progress: false
+
+# Needed to push watch state (latest.json) back to the `state` branch.
+permissions:
+  contents: write
+
+jobs:
+  scan:
+    name: Scan brands
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      # Reports and caches stay on the runner workspace (not $HOME).
+      PHISHFINDER_REPORTS: ${{ github.workspace }}/reports
+      PHISHFINDER_CACHE: ${{ github.workspace }}/.cache/phishfinder
+      WATCH_CACHE_DIR: ${{ github.workspace }}/.watch-state-cache
+      PYTHONUNBUFFERED: "1"
+      NO_COLOR: "1"
+      # Optional keys: empty if the secret is not set. The tool works without them.
+      URLSCAN_API_KEY: ${{ secrets.URLSCAN_API_KEY }}
+      VT_API_KEY: ${{ secrets.VT_API_KEY }}
+      URLHAUS_AUTH_KEY: ${{ secrets.URLHAUS_AUTH_KEY }}
+      PHISHTANK_APP_KEY: ${{ secrets.PHISHTANK_APP_KEY }}
+      GSB_API_KEY: ${{ secrets.GSB_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASS: ${{ secrets.SMTP_PASS }}
+      SMTP_STARTTLS: ${{ secrets.SMTP_STARTTLS }}
+      ALERT_EMAIL_FROM: ${{ secrets.ALERT_EMAIL_FROM }}
+      ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+      ALERT_MIN_SCORE: ${{ secrets.ALERT_MIN_SCORE }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install Phish Finder (no Playwright / screenshots)
+        run: ./install.sh --no-screenshots
+
+      - name: Cache feed / DNS data
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.PHISHFINDER_CACHE }}
+          key: pf-cache-${{ github.run_id }}
+          restore-keys: |
+            pf-cache-
+
+      - name: Cache watch state (fallback if the state branch is missing)
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.WATCH_CACHE_DIR }}
+          key: pf-watch-${{ github.run_id }}
+          restore-keys: |
+            pf-watch-
+
+      - name: Restore --watch baseline
+        run: PYTHON=.venv/bin/python ./tools/ci_state.sh restore
+
+      - name: Run scan
+        id: scan
+        env:
+          BRAND: ${{ github.event.inputs.brand || '' }}
+          DOMAIN: ${{ github.event.inputs.domain || '' }}
+          MODE: ${{ github.event.inputs.mode || '' }}
+        run: |
+          set -euo pipefail
+          # Empty / 'default' = use settings.mode from brands.yml (scheduled runs).
+          if [ "$MODE" = "default" ]; then MODE=""; fi
+          NOTIFY_ARGS=()
+          if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] && [ -n "${TELEGRAM_CHAT_ID:-}" ]; then
+            NOTIFY_ARGS+=(--notify)
+          elif [ -n "${SMTP_HOST:-}" ] && [ -n "${ALERT_EMAIL_TO:-}" ]; then
+            NOTIFY_ARGS+=(--notify)
+          fi
+          mkdir -p "$PHISHFINDER_REPORTS"
+          .venv/bin/python ./tools/ci_scan.py scan \
+            --config brands.yml \
+            --mode "$MODE" \
+            --brand "$BRAND" \
+            --domain "$DOMAIN" \
+            --python .venv/bin/python \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            "${NOTIFY_ARGS[@]}"
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: phish-finder-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish --watch state
+        if: always()
+        run: PYTHON=.venv/bin/python ./tools/ci_state.sh publish
