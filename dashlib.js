@@ -288,6 +288,7 @@
     b.name = name; b.domain = domain;
     if (official.length) b.official = official.join(", "); else delete b.official;
     var kw = csv(f.keywords); if (kw) b.keywords = kw; else delete b.keywords;
+    if (!country) country = inferCountry(name, domain);
     if (country) b.country = country; else delete b.country;
     if (f.enabled === false) b.enabled = false; else delete b.enabled;
     if (f.autoKeywords === false || f.auto_keywords === false) b.auto_keywords = false; else delete b.auto_keywords;
@@ -418,10 +419,45 @@
     if (n !== term) out.push(n);
     return out;
   }
+
+  var GENERIC_TLDS = { com:1, net:1, org:1, info:1, biz:1, name:1, pro:1, xyz:1, online:1, site:1, shop:1, store:1, app:1, dev:1, io:1, ai:1, tv:1, me:1, cc:1, co:1, us:1, uk:1 };
+  var NAME_ALIASES = [
+    ["bank of alexandria", "eg"], ["alexandria", "eg"], ["alex bank", "eg"], ["alexbank", "eg"],
+    ["بنك الإسكندرية", "eg"], ["بنك الاسكندرية", "eg"], ["بنك الاسكندريه", "eg"],
+    ["national bank of egypt", "eg"], ["banque misr", "eg"], ["بنك مصر", "eg"],
+    ["البنك الأهلي المصري", "eg"], ["egypt", "eg"], ["misr", "eg"], ["cairo", "eg"], ["مصر", "eg"],
+    ["abu dhabi", "ae"], ["abudhabi", "ae"], ["emirates nbd", "ae"], ["emirates", "ae"],
+    ["first abu dhabi", "ae"], ["adcb", "ae"], ["dubai", "ae"], ["uae", "ae"],
+    ["الإمارات", "ae"], ["الامارات", "ae"],
+    ["al rajhi", "sa"], ["alrajhi", "sa"], ["الراجحي", "sa"], ["saudi", "sa"], ["riyadh", "sa"], ["riyad", "sa"],
+    ["السعودية", "sa"], ["ajeer", "sa"],
+    ["bahrain", "bh"], ["البحرين", "bh"], ["kuwait", "kw"], ["الكويت", "kw"],
+    ["qatar", "qa"], ["قطر", "qa"], ["doha", "qa"], ["oman", "om"], ["عمان", "om"], ["muscat", "om"],
+    ["jordan", "jo"], ["الأردن", "jo"], ["lebanon", "lb"], ["لبنان", "lb"], ["iraq", "iq"], ["pakistan", "pk"]
+  ];
+  function inferCountry(name, domain) {
+    domain = String(domain || "").replace(/^www\./, "").toLowerCase();
+    var parts = domain.split(".").filter(Boolean);
+    var last = parts.length ? parts[parts.length - 1] : "";
+    if (last.length === 2 && !GENERIC_TLDS[last]) return last;
+    var label = parts.length ? parts[0] : "";
+    var blob = (String(name || "") + " " + domain + " " + label + " " + label.replace(/-/g, " ")).toLowerCase();
+    var raw = String(name || "") + " " + domain;
+    var best = "", bestLen = 0;
+    NAME_ALIASES.forEach(function (pair) {
+      var alias = pair[0], cc = pair[1];
+      if (alias.length > bestLen && (blob.indexOf(alias.toLowerCase()) >= 0 || raw.indexOf(alias) >= 0)) {
+        best = cc; bestLen = alias.length;
+      }
+    });
+    return best;
+  }
+
   function generateKeywords(f) {
     var name = String((f && f.name) || "").trim();
     var domain = (f && f.domain) || "";
     var country = String((f && f.country) || "").trim().toLowerCase();
+    if (!country) country = inferCountry(name, domain);
     var user = csv((f && f.keywords) || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
     var label = labelOf(domain);
     var lang = ARABIC_CC[country] ? "ar" : (/[\u0600-\u06FF]/.test(name) ? "ar" : "en");
@@ -467,7 +503,7 @@
     buildCron: buildCron, parseCron: parseCron, readSchedule: readSchedule, readScheduleLabel: readScheduleLabel, rewriteSchedule: rewriteSchedule,
     nextRuns: nextRuns, runsPerMonth: runsPerMonth,
     parseBrands: parseBrands, dumpBrands: dumpBrands, normaliseBrand: normaliseBrand, brandFromForm: brandFromForm,
-    generateKeywords: generateKeywords, previewKeywords: previewKeywords,
+    generateKeywords: generateKeywords, previewKeywords: previewKeywords, inferCountry: inferCountry,
     isEnabled: isEnabled, csv: csv, csvList: csvList, addToList: addToList, removeFromList: removeFromList,
     toCSV: toCSV, takedownText: takedownText, cleanDomain: cleanDomain, validDomain: validDomain, slug: slug,
     b64EncodeUtf8: b64EncodeUtf8, b64DecodeUtf8: b64DecodeUtf8, safeUrl: safeUrl,

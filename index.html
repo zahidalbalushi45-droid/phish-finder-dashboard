@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="referrer" content="no-referrer">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-i1v69gc9ORP184ZvdDDjToKW4qe7f7C5rm1mCN7VQMY='; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src https://api.github.com https://*.blob.core.windows.net https://*.actions.githubusercontent.com https://*.githubusercontent.com; frame-src blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'sha256-i1v69gc9ORP184ZvdDDjToKW4qe7f7C5rm1mCN7VQMY='; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://icons.duckduckgo.com https://www.google.com https://*.gstatic.com; connect-src 'self' https://api.github.com https://*.blob.core.windows.net https://*.actions.githubusercontent.com https://*.githubusercontent.com; frame-src blob:; manifest-src 'self'; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#0b1220">
 <meta name="robots" content="noindex, nofollow">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -96,7 +96,13 @@
   <section id="brands" class="view" hidden>
     <div class="row between"><h2 class="section">Brands</h2><button id="addBrandBtn" class="primary">＋ Add brand</button></div>
     <div id="brandList"><div class="skeleton"></div></div>
-    <p class="muted small">Paused brands stay in the list but are skipped by automatic scans; you can still scan them by hand.</p>
+    <p class="muted small">Tap a card for every incident, campaign and setting. Paused brands stay in the list but are skipped by automatic scans; you can still scan them by hand.</p>
+  </section>
+
+  <!-- Brand detail (opened from a card; not a tab) -->
+  <section id="brand" class="view brand-page" hidden>
+    <button type="button" class="back" id="brandBack">← Brands</button>
+    <div id="brandPage"><div class="skeleton"></div></div>
   </section>
 
   <!-- Schedule -->
@@ -166,7 +172,8 @@
     <label>Main website domain *<input name="domain" required autocapitalize="off" spellcheck="false" inputmode="url" placeholder="nbbonline.com"></label>
     <label>Other official domains <span class="muted small">(comma-separated)</span><input name="official" autocapitalize="off" spellcheck="false" placeholder="nbb.bh, nbb.com.bh"></label>
     <label>Extra keywords <span class="muted small">(comma-separated, any language)</span><input name="keywords" autocapitalize="off" spellcheck="false" placeholder="nbb, nationalbank"></label>
-    <label>Country code <span class="muted small">(2 letters, optional)</span><input name="country" maxlength="2" autocapitalize="off" spellcheck="false" placeholder="bh"></label>
+    <label>Country code <span class="muted small">(2 letters, optional — guessed from the domain if you leave this blank)</span><input name="country" maxlength="2" autocapitalize="off" spellcheck="false" placeholder="bh"></label>
+    <p class="muted small">Name and official domain are enough. Keywords, logos, country, local lures and free-host searches are derived automatically on the first scan. You can still add extra keywords below.</p>
     <label class="check"><input type="checkbox" name="autoKeywords" checked> Auto-generate keywords for this brand’s country (native script + English, typo and my/app/pay forms, gift/OTP/card lures). Bare generic words such as فوري (“instant”) are skipped.</label>
     <pre id="kwPreview" class="preview muted small" style="white-space:pre-wrap;max-height:12em;overflow:auto" hidden></pre>
     <label>Ignored hosts <span class="muted small">(false positives, comma-separated)</span><input name="ignore" autocapitalize="off" spellcheck="false" placeholder=""></label>

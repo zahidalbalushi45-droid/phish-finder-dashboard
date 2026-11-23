@@ -9,7 +9,8 @@
   var TRIAGE_PATH = "triage.json";
   var LS_TOKEN = "pf.token", LS_REPO = "pf.repo", LS_SEEN = "pf.seenRun";
   var FREE_MINUTES = 2000;
-  var VIEWS = ["home", "findings", "brands", "schedule", "runs"];
+  var VIEWS = ["home", "findings", "brands", "brand", "schedule", "runs"];
+  var DEMO = /(?:^|[?&])demo=1(?:&|$)/.test(location.search);
   var STATUSES = [
     { id: "open", label: "Open", icon: "●" },
     { id: "reviewing", label: "Reviewing", icon: "👀" },
@@ -218,13 +219,33 @@
   });
 
   /* ---------- navigation ---------- */
-  function go(view, keepScroll) {
-    VIEWS.forEach(function (v) { $(v).hidden = v !== view; });
-    Array.prototype.forEach.call(document.querySelectorAll(".tabs button"), function (b) { b.classList.toggle("on", b.dataset.view === view); });
-    if (location.hash !== "#" + view) history.replaceState(null, "", "#" + view);
+  function parseHash() {
+    var raw = (location.hash || "#home").replace(/^#/, "");
+    if (raw.indexOf("brand/") === 0) return { view: "brand", slug: raw.slice(6) };
+    return { view: VIEWS.indexOf(raw) >= 0 ? raw : "home", slug: "" };
+  }
+  function go(view, keepScroll, slug) {
+    if (view === "brand") {
+      slug = slug || S.brandSlug;
+      if (!slug) view = "brands";
+      else S.brandSlug = slug;
+    }
+    VIEWS.forEach(function (v) { if ($(v)) $(v).hidden = v !== view; });
+    Array.prototype.forEach.call(document.querySelectorAll(".tabs button"), function (b) {
+      b.classList.toggle("on", b.dataset.view === view || (view === "brand" && b.dataset.view === "brands"));
+    });
+    var hash = (view === "brand" && S.brandSlug) ? "brand/" + S.brandSlug : view;
+    var suffix = DEMO ? (location.search || "?demo=1") : location.search;
+    if (location.hash !== "#" + hash) history.replaceState(null, "", suffix + "#" + hash);
     if (!keepScroll) window.scrollTo(0, 0);
+    if (view === "brand") renderBrandPage();
   }
   Array.prototype.forEach.call(document.querySelectorAll(".tabs button"), function (b) { b.addEventListener("click", function () { go(b.dataset.view); }); });
+  window.addEventListener("hashchange", function () {
+    var parsed = parseHash();
+    if (parsed.slug) S.brandSlug = parsed.slug;
+    go(parsed.view, true, parsed.slug);
+  });
   $("refreshBtn").addEventListener("click", function () { loadAll(true); });
   document.addEventListener("visibilitychange", function () { if (!document.hidden && S.token && Date.now() - S.lastLoad > 60000) loadAll(false); });
 
@@ -232,8 +253,9 @@
     $("connect").hidden = true; $("tabs").hidden = false; $("refreshBtn").hidden = false;
     $("repoLabel").textContent = S.repo + (S.repoInfo && S.repoInfo.private === false ? " · ⚠ PUBLIC" : " · private");
     if (S.repoInfo && S.repoInfo.private === false) toast("Warning: this repository is PUBLIC. Make it private in GitHub settings.");
-    var v = (location.hash || "#home").slice(1);
-    go(VIEWS.indexOf(v) >= 0 ? v : "home");
+    var parsed = parseHash();
+    if (parsed.slug) S.brandSlug = parsed.slug;
+    go(parsed.view, false, parsed.slug);
     renderSettings();
     await loadAll(false);
     clearInterval(S.pollTimer);
@@ -312,7 +334,7 @@
 
   function renderAll() {
     if (!S.cfg) return;
-    renderTiles(); renderAttention(); renderScanForm(); renderResults(); renderFindings(); renderBrands(); renderRuns(); renderSettings();
+    renderTiles(); renderAttention(); renderScanForm(); renderResults(); renderFindings(); renderBrands(); renderRuns(); renderSettings(); if (!$("brand").hidden) renderBrandPage();
   }
 
   /* ---------- Home ---------- */
@@ -375,7 +397,7 @@
   }
   function sparkline(slug) {
     var pts = (S.history || []).slice().reverse().map(function (r) { var b = (r.brands || []).find(function (x) { return (x.slug || L.slug(x.name)) === slug; }); return b && b.findings !== null && b.findings !== undefined ? b.findings : null; }).filter(function (x) { return x !== null; }).slice(-20);
-    if (pts.length < 2) return null;
+    if (pts.length < 3) return null;
     var w = 96, hh = 28, max = Math.max.apply(null, pts), min = Math.min.apply(null, pts), rng = Math.max(1, max - min);
     var d = pts.map(function (v, i) { return (i ? "L" : "M") + (i * w / (pts.length - 1)).toFixed(1) + " " + (hh - 3 - (v - min) / rng * (hh - 6)).toFixed(1); }).join(" ");
     var s = svg("svg", { width: w, height: hh, viewBox: "0 0 " + w + " " + hh, class: "spark", role: "img", "aria-label": "Findings trend" });
@@ -636,27 +658,264 @@
 
   /* ---------- Brands ---------- */
   function lastFor(name) { var sl = L.slug(name); return ((S.summary && S.summary.brands) || []).find(function (b) { return b.slug === sl; }) || null; }
+  function logoUrl(domain) {
+    return domain ? "https://icons.duckduckgo.com/ip3/" + String(domain).replace(/^www\./, "") + ".ico" : "";
+  }
+  function logoImg(domain, cls, name) {
+    var wrap = h("span", { class: "logo-wrap" });
+    var letter = String(name || domain || "?").replace(/^www\./, "").charAt(0).toUpperCase() || "?";
+    wrap.appendChild(h("span", { class: (cls || "brand-logo") + " logo-letter", text: letter, "aria-hidden": "true" }));
+    if (!domain) return wrap;
+    var el = h("img", { class: cls || "brand-logo", alt: "", width: "36", height: "36" });
+    var sources = [
+      "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(domain)
+    ];
+    var i = 0;
+    function tryNext() {
+      if (i >= sources.length) { el.remove(); return; }
+      el.src = sources[i++];
+    }
+    el.addEventListener("error", tryNext);
+    el.addEventListener("load", function () {
+      if (el.naturalWidth && el.naturalWidth < 32) tryNext();
+    });
+    tryNext();
+    wrap.appendChild(el);
+    return wrap;
+  }
+  function severityCounts(b) {
+    var s = b.severity || {};
+    return { c: s.critical || 0, h: s.high || 0, m: s.medium || 0, total: b.total || 0, neu: b.new_count || 0 };
+  }
   function renderBrands() {
     var box = clear($("brandList"));
-    if (!brands().length) box.appendChild(h("div", { class: "card empty" }, h("b", { text: "🏷" }), "No brands yet. Tap “Add brand” to start monitoring one."));
+    box.className = "brand-grid";
+    if (!brands().length) {
+      box.className = "";
+      box.appendChild(h("div", { class: "card empty" }, h("b", { text: "🏷" }), "No brands yet. Tap “Add brand” to start monitoring one."));
+      return;
+    }
     brands().forEach(function (b, i) {
-      var on = L.isEnabled(b.enabled), last = lastFor(b.name), ign = L.csvList(b.ignore).length;
-      box.appendChild(h("div", { class: "card brand" },
-        h("div", { class: "bhead" }, h("span", { class: "bname", text: b.name }), on ? h("span", { class: "pill new", text: "active" }) : h("span", { class: "pill paused", text: "paused" })),
-        h("div", {}, link("https://" + b.domain, b.domain)),
-        L.csv(b.official) ? h("div", { class: "small muted", text: "Also owns: " + L.csv(b.official) }) : null,
-        L.csv(b.keywords) ? h("div", { class: "small muted", text: "Keywords: " + L.csv(b.keywords) }) : null,
-        b.country ? h("div", { class: "small muted", text: "Country: " + String(b.country).toUpperCase() }) : null,
-        ign ? h("div", { class: "small muted", text: "Ignoring " + plural(ign, "false positive") }) : null,
-        last && last.generated_utc ? h("div", { class: "small", text: "Last scan " + L.fmtBahrain(last.generated_utc) + " · " + plural(last.total || 0, "finding") + (last.new_count ? " · " + last.new_count + " new" : "") }) : h("div", { class: "small muted", text: "Not scanned yet" }),
-        h("div", { class: "actions" },
-          h("button", { class: "small", onclick: function () { editBrand(i); } }, "✏️ Edit"),
-          h("button", { class: "small", onclick: function () { toggleBrand(i); } }, on ? "⏸ Pause" : "▶ Resume"),
-          h("button", { class: "small", onclick: function () { scanOne(b.name); } }, "🔍 Scan"),
-          last && last.generated_utc ? h("button", { class: "small", onclick: function () { setFilter({ brand: L.slug(b.name), status: "action" }); } }, "⚠ Findings") : null,
-          h("button", { class: "small danger", onclick: function () { removeBrand(i); } }, "🗑 Remove"))));
+      var on = L.isEnabled(b.enabled), last = lastFor(b.name), sc = severityCounts(last || {});
+      var card = h("div", { class: "card brand-card", role: "button", tabindex: "0",
+        onclick: function () { go("brand", false, L.slug(b.name)); },
+        onkeydown: function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go("brand", false, L.slug(b.name)); } } });
+      card.appendChild(h("div", { class: "bhead" },
+        logoImg(b.domain, "brand-logo", b.name),
+        h("div", { class: "grow" },
+          h("div", { class: "bname", text: b.name }),
+          h("div", { class: "bmeta" },
+            h("a", { href: "https://" + b.domain, target: "_blank", rel: "noopener noreferrer nofollow",
+              text: b.domain, onclick: function (e) { e.stopPropagation(); } }), " ",
+            on ? h("span", { class: "pill new", text: "active" }) : h("span", { class: "pill paused", text: "paused" })))));
+      var counts = h("div", { class: "brand-counts" });
+      if (sc.c) counts.appendChild(h("span", { class: "c", text: sc.c + " critical" }));
+      if (sc.h) counts.appendChild(h("span", { class: "h", text: sc.h + " high" }));
+      if (sc.m) counts.appendChild(h("span", { class: "m", text: sc.m + " medium" }));
+      counts.appendChild(h("span", { text: plural(sc.total, "finding") + (sc.neu ? " · " + sc.neu + " new" : "") }));
+      card.appendChild(counts);
+      card.appendChild(h("div", { class: "bmeta", text: last && last.generated_utc ? ("Last scan " + L.fmtBahrain(last.generated_utc, true) + (last.duration_s ? " · " + L.fmtDuration(last.duration_s) : "")) : "Not scanned yet" }));
+      var tr = sparkline(L.slug(b.name));
+      if (tr) card.appendChild(h("div", { class: "trend" }, tr));
+      box.appendChild(card);
     });
   }
+  function nextAutoScan() {
+    try {
+      var crons = L.readSchedule(S.wf || "");
+      var nxt = L.nextRuns(crons, new Date(), 1);
+      return nxt && nxt[0] ? nxt[0] : null;
+    } catch (e) { return null; }
+  }
+  function compactFullFinding(f, brand, slug, domain) {
+    var p = f.probe || {}, rd = f.rdap || {}, ipo = f.ip_owner || {}, gsb = f.gsb || {}, dns = f.dns || {};
+    var flags = [];
+    if (p.password_field) flags.push("password");
+    if (p.sensitive_fields && p.sensitive_fields.length) flags.push("sensitive");
+    if (p.exfil || p.exfil_strong) flags.push("exfil");
+    if (p.parked) flags.push("parked");
+    if (p.taken_down) flags.push("down");
+    return {
+      host: f.host || "", reg: f.registrable || "", url: (p.final_url || (f.urlscan && f.urlscan.url) || ("https://" + (f.host || "") + "/")),
+      score: f.score, severity: f.severity || "", is_new: !!f.is_new, live: !!p.live, status: p.status,
+      title: (p.title || (f.urlscan && f.urlscan.title) || "").slice(0, 160),
+      reasons: (f.reasons || []).slice(0, 8), sources: f.sources || [], feeds: f.feeds || [],
+      technique: f.technique || "", flags: flags, ip: ((dns.a || [])[0]) || "", hosting: (ipo && (ipo.org || ipo.net)) || "",
+      abuse: (ipo && ipo.abuse) || "", registrar: rd.registrar || "", created: rd.created || "", age_days: rd.age_days,
+      gsb: gsb.state || "", first_cert: f.first_cert || "", campaign_id: f.campaign_id || "", campaign_new: !!f.campaign_new,
+      kit: (p.kit_fingerprint && (p.kit_fingerprint.id || p.kit_fingerprint.name)) || f.kit_seed || "",
+      logo_match: p.logo_match || "", ocr: p.ocr_brand_hits || [],
+      brand: brand, brandSlug: slug, brandDomain: domain, scanned: null
+    };
+  }
+  function findingsToCsv(list) {
+    var cols = ["score", "severity", "host", "url", "title", "live", "is_new", "campaign_id", "sources", "reasons", "registrar", "hosting", "created"];
+    function cell(v) {
+      v = v === null || v === undefined ? "" : String(v);
+      if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
+      return v;
+    }
+    var lines = [cols.join(",")];
+    list.forEach(function (f) {
+      lines.push(cols.map(function (k) {
+        if (k === "url") return cell(f.url || ("https://" + f.host + "/"));
+        if (k === "sources") return cell((f.sources || []).join(";"));
+        if (k === "reasons") return cell((f.reasons || []).join(" | "));
+        if (k === "live") return cell(f.live ? "yes" : "no");
+        return cell(f[k]);
+      }).join(","));
+    });
+    return lines.join("\n");
+  }
+  function downloadText(name, text, type) {
+    var blob = new Blob([text], { type: type || "text/plain" });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a"); a.href = url; a.download = name; a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+  async function loadBrandLatest(slug) {
+    S.latest = S.latest || {};
+    if (S.latest[slug]) return S.latest[slug];
+    try {
+      var data = null;
+      if (DEMO) {
+        var r = await fetch("demo/" + slug + "/latest.json", { cache: "no-store" });
+        if (r.ok) data = await r.json();
+      } else {
+        var f = await getFile(slug + "/latest.json", "state");
+        if (f && f.text) data = JSON.parse(f.text);
+      }
+      if (data) S.latest[slug] = data;
+      return data;
+    } catch (e) { return null; }
+  }
+  async function renderBrandPage() {
+    var slug = S.brandSlug, box = $("brandPage");
+    if (!box) return;
+    var cfgB = brands().find(function (b) { return L.slug(b.name) === slug; });
+    var last = lastFor(slug) || ((S.summary && S.summary.brands) || []).find(function (b) { return b.slug === slug; }) || {};
+    if (!cfgB && last.name) cfgB = { name: last.name, domain: last.domain, country: last.country };
+    if (!cfgB) { clear(box).appendChild(h("p", { class: "muted", text: "Brand not found." })); return; }
+    var idx = brands().indexOf(cfgB);
+    clear(box).appendChild(h("div", { class: "skeleton" }));
+    var latest = await loadBrandLatest(slug);
+    if (S.brandSlug !== slug) return;
+    var meta = (latest && latest.brand) || {};
+    var findings = ((latest && latest.findings) || last.top || []).map(function (f) {
+      if (f.probe || f.rdap) return compactFullFinding(f, cfgB.name, slug, cfgB.domain);
+      return Object.assign({}, f, { brand: cfgB.name, brandSlug: slug, brandDomain: cfgB.domain });
+    });
+    findings.forEach(function (f) { f.st = (((S.triage || {}).hosts || {})[f.host] || {}).status || "open"; });
+    var camps = (latest && latest.campaigns) || last.campaigns || [];
+    var kits = last.kits || [];
+    if (latest && latest.findings && !kits.length) {
+      var seen = {};
+      (latest.findings || []).forEach(function (f) {
+        var p = f.probe || {};
+        var id = (p.kit_fingerprint && p.kit_fingerprint.id) || f.kit_seed;
+        var name = (p.kit_fingerprint && p.kit_fingerprint.name) || id;
+        if (id) { seen[id] = seen[id] || { id: id, name: name, count: 0 }; seen[id].count++; }
+      });
+      kits = Object.keys(seen).map(function (k) { return seen[k]; });
+    }
+    var sc = severityCounts(last);
+    var nxt = nextAutoScan();
+    var hist = (S.history || []).slice().reverse().map(function (r) {
+      var b = (r.brands || []).find(function (x) { return (x.slug || L.slug(x.name)) === slug; });
+      if (!b) return null;
+      return { at: r.updated_utc || r.generated_utc || "", total: b.findings, new_count: b.new_count, duration_s: b.duration_s, depth: b.depth };
+    }).filter(Boolean);
+
+    var kwText = "";
+    if (meta.generated_keywords && meta.generated_keywords.length) kwText = meta.generated_keywords.join("\n");
+    else if (last.generated_keywords && last.generated_keywords.length) kwText = last.generated_keywords.join("\n");
+    else kwText = L.previewKeywords({
+      name: cfgB.name, domain: cfgB.domain, keywords: L.csv(cfgB.keywords),
+      country: cfgB.country || meta.country || "", autoKeywords: cfgB.auto_keywords !== false
+    });
+
+    var head = h("div", { class: "bp-head" },
+      logoImg(cfgB.domain, "brand-logo", cfgB.name),
+      h("div", { class: "grow" },
+        h("h1", { text: cfgB.name }),
+        h("div", { class: "muted small" }, link("https://" + cfgB.domain, cfgB.domain),
+          cfgB.country ? " · " + String(cfgB.country).toUpperCase() : "",
+          " · ", L.isEnabled(cfgB.enabled) ? "active" : "paused"),
+        h("div", { class: "bp-actions" },
+          h("button", { class: "small primary", onclick: function () { scanOne(cfgB.name); } }, "🔍 Scan now"),
+          idx >= 0 ? h("button", { class: "small", onclick: function () { editBrand(idx); } }, "✏️ Settings") : null,
+          h("button", { class: "small", onclick: function () { downloadText(slug + "-incidents.csv", findingsToCsv(findings), "text/csv;charset=utf-8"); } }, "⬇ Download CSV"))));
+
+    var counts = h("div", { class: "brand-counts card" },
+      h("span", { class: "c", text: sc.c + " critical" }),
+      h("span", { class: "h", text: sc.h + " high" }),
+      h("span", { class: "m", text: sc.m + " medium" }),
+      h("span", { text: plural(findings.length || sc.total, "incident") }),
+      sc.neu ? h("span", { class: "pill new", text: sc.neu + " new" }) : null);
+
+    var when = h("div", { class: "card" },
+      h("h2", { text: "Scans" }),
+      h("div", { text: last.generated_utc ? ("Last scan " + L.fmtBahrain(last.generated_utc, true) + (last.duration_s ? " · took " + L.fmtDuration(last.duration_s) : "") + (last.depth ? " · " + last.depth : "")) : "Not scanned yet" }),
+      h("div", { class: "muted small", text: nxt ? ("Next scheduled scan " + L.fmtBahrain(nxt, true)) : "Automatic scans are off" }),
+      sparkline(slug) ? h("div", { class: "trend", style: "margin-top:10px" }, sparkline(slug)) : null);
+
+    var histBox = h("div", { class: "card" }, h("h2", { text: "Scan history" }));
+    if (!hist.length) histBox.appendChild(h("p", { class: "muted small", text: "No previous runs in history yet." }));
+    hist.slice(0, 12).forEach(function (r) {
+      histBox.appendChild(h("div", { class: "hist-row" },
+        h("span", { text: r.at ? L.fmtBahrain(r.at, true) : "—" }),
+        h("span", { class: "muted", text: plural(r.total || 0, "finding") + (r.new_count ? " · " + r.new_count + " new" : "") + (r.duration_s ? " · " + L.fmtDuration(r.duration_s) : "") })));
+    });
+
+    var campBox = h("div", { class: "card" }, h("h2", { text: "Campaigns" }));
+    if (!camps.length) campBox.appendChild(h("p", { class: "muted small", text: "No clustered campaigns yet. Sibling sites that share a title, image, script or path will appear here after a scan." }));
+    camps.forEach(function (c) {
+      campBox.appendChild(h("div", { class: "camp" },
+        h("div", { class: "camp-head" },
+          h("b", { class: "camp-title", text: c.title || c.id || "Campaign" }), " ",
+          c.is_new_campaign ? h("span", { class: "pill new", text: "NEW" }) : null,
+          " ", h("span", { class: "pill sev-" + (c.severity || "info"), text: (c.severity || "") + (c.max_score ? " · " + c.max_score : "") })),
+        c.id ? h("div", { class: "muted small mono", text: c.id }) : null,
+        h("div", { class: "muted small", text: plural(c.count || (c.hosts || []).length, "site") +
+          (c.first_seen ? " · first " + L.fmtBahrain(c.first_seen, true) : "") +
+          (c.last_seen ? " · last " + L.fmtBahrain(c.last_seen, true) : "") }),
+        h("div", { class: "small camp-hosts" }, (c.hosts || []).slice(0, 12).map(function (host, i) {
+          return h("span", {}, i ? " · " : "", link("https://" + host + "/", host));
+        }))));
+    });
+
+    var kitBox = h("div", { class: "card" }, h("h2", { text: "Scam templates" }));
+    if (!kits.length) kitBox.appendChild(h("p", { class: "muted small", text: "No known-kit fingerprints seen for this brand on the last scan. New campaigns are still clustered above from logos, OCR and page content." }));
+    kits.forEach(function (k) {
+      kitBox.appendChild(h("div", { class: "camp" },
+        h("b", { text: k.name || k.id }), " ",
+        h("span", { class: "muted small", text: plural(k.count || 0, "host") + (k.id && k.name && k.id !== k.name ? " · " + k.id : "") })));
+    });
+
+    var inc = h("div", { class: "card" },
+      h("div", { class: "row between" }, h("h2", { text: "Incidents" }), h("button", { class: "small", onclick: function () { downloadText(slug + "-incidents.csv", findingsToCsv(findings), "text/csv;charset=utf-8"); } }, "⬇ CSV")),
+      h("p", { class: "muted small", text: "Tap a row for evidence, reasons and lookup links. Links are real: these may be live phishing pages." }));
+    if (!findings.length) inc.appendChild(h("p", { class: "muted", text: "No incidents in the last scan." }));
+    findings.sort(function (a, b) { return (b.score || 0) - (a.score || 0); }).forEach(function (f) {
+      inc.appendChild(findingRow(f, false));
+    });
+
+    var settings = h("div", { class: "card" },
+      h("h2", { text: "Auto-generated keywords & settings" }),
+      h("div", { class: "muted small", text: "Language " + (meta.language || last.language || "–") +
+        " · country " + String(cfgB.country || meta.country || last.country || "–").toUpperCase() +
+        " · auto-keywords " + (cfgB.auto_keywords === false || cfgB.auto_keywords === "false" ? "off" : "on") }),
+      (meta.official_names || last.official_names || []).length ? h("div", { class: "small", text: "Official names from the homepage: " + (meta.official_names || last.official_names).join(" · ") }) : null,
+      h("pre", { class: "kw-box", text: kwText || "—" }),
+      L.csv(cfgB.official) ? h("div", { class: "small muted", text: "Also owns: " + L.csv(cfgB.official) }) : null,
+      L.csv(cfgB.keywords) ? h("div", { class: "small muted", text: "Extra keywords you added: " + L.csv(cfgB.keywords) }) : null,
+      L.csv(cfgB.ignore) ? h("div", { class: "small muted", text: "Ignoring: " + L.csv(cfgB.ignore) }) : null,
+      idx >= 0 ? h("button", { class: "small", style: "margin-top:8px", onclick: function () { editBrand(idx); } }, "✏️ Edit settings") : null);
+
+    clear(box);
+    [head, counts, when, campBox, kitBox, inc, histBox, settings].forEach(function (el) { box.appendChild(el); });
+  }
+
   async function scanOne(name) {
     if (!confirm("Start a " + settingsMode() + " scan of " + name + " now?")) return;
     try { await dispatchScan(name, settingsMode()); toast("Scan of " + name + " started"); go("home"); } catch (e) { toast(e.message); }
@@ -710,6 +969,7 @@
   });
   if ($("brandForm") && $("brandForm").autoKeywords) $("brandForm").autoKeywords.addEventListener("change", updateKwPreview);
   $("addBrandBtn").addEventListener("click", function () { editBrand(-1); });
+  if ($("brandBack")) $("brandBack").addEventListener("click", function () { go("brands"); });
   $("brandCancel").addEventListener("click", function () { $("brandDlg").close(); });
   $("brandForm").addEventListener("submit", async function (ev) {
     ev.preventDefault();
@@ -883,10 +1143,32 @@
   }
 
   /* ---------- boot ---------- */
+  async function startDemo() {
+    S.repo = "demo/phish-finder";
+    S.user = "demo";
+    S.token = "";
+    $("connect").hidden = true; $("tabs").hidden = false; $("refreshBtn").hidden = true;
+    $("repoLabel").textContent = "demo · local preview";
+    try {
+      var brandsTxt = await fetch("demo/brands.yml", { cache: "no-store" }).then(function (r) { return r.text(); });
+      S.cfg = L.parseBrands(brandsTxt);
+    } catch (e) { S.cfg = { settings: { mode: "normal", auto_keywords: true }, brands: [] }; }
+    try { S.wf = await fetch("demo/phish-scan.yml", { cache: "no-store" }).then(function (r) { return r.ok ? r.text() : ""; }); } catch (e) { S.wf = ""; }
+    try { S.summary = await fetch("demo/summary.json", { cache: "no-store" }).then(function (r) { return r.json(); }); } catch (e) { S.summary = { brands: [] }; }
+    try { S.history = await fetch("demo/history.json", { cache: "no-store" }).then(function (r) { return r.json(); }); } catch (e) { S.history = []; }
+    S.triage = { hosts: {} };
+    S.runs = [];
+    var parsed = parseHash();
+    if (parsed.slug) S.brandSlug = parsed.slug;
+    go(parsed.view || "brands", false, parsed.slug);
+    renderTiles(); renderAttention(); renderScanForm(); renderResults(); renderFindings(); renderBrands(); renderRuns(); renderSettings();
+    if ($("schedCurrent")) try { initSchedule(); } catch (e) {}
+  }
   S.token = localStorage.getItem(LS_TOKEN) || "";
   S.repo = localStorage.getItem(LS_REPO) || defaultRepo();
   void LS_SEEN;
-  if (!S.token || !S.repo) showConnect("");
+  if (DEMO) startDemo().catch(function (e) { showConnect(e.message || String(e)); });
+  else if (!S.token || !S.repo) showConnect("");
   else verify().then(start).catch(function (e) {
     if (e.status === 401 || e.status === 404) { localStorage.removeItem(LS_TOKEN); showConnect(e.message); }
     else { start(); toast(e.message); }
