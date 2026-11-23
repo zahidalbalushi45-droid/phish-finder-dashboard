@@ -117,6 +117,7 @@
         <option value="normal">Normal – recommended, last 30 days</option>
         <option value="full">Full – deepest, last 90 days (slow)</option>
       </select></label>
+      <label class="check"><input type="checkbox" id="autoKeywordsGlobal" checked> Auto-generate country and English keywords for every brand (can be turned off on a brand)</label>
       <div id="schedPreview" class="preview"></div>
       <div id="schedCost" class="meter"></div>
       <button id="schedSave" class="primary wide">Save schedule</button>
@@ -166,6 +167,8 @@
     <label>Other official domains <span class="muted small">(comma-separated)</span><input name="official" autocapitalize="off" spellcheck="false" placeholder="nbb.bh, nbb.com.bh"></label>
     <label>Extra keywords <span class="muted small">(comma-separated, any language)</span><input name="keywords" autocapitalize="off" spellcheck="false" placeholder="nbb, nationalbank"></label>
     <label>Country code <span class="muted small">(2 letters, optional)</span><input name="country" maxlength="2" autocapitalize="off" spellcheck="false" placeholder="bh"></label>
+    <label class="check"><input type="checkbox" name="autoKeywords" checked> Auto-generate keywords for this brand’s country (native script + English, typo and my/app/pay forms, gift/OTP/card lures). Bare generic words such as فوري (“instant”) are skipped.</label>
+    <pre id="kwPreview" class="preview muted small" style="white-space:pre-wrap;max-height:12em;overflow:auto" hidden></pre>
     <label>Ignored hosts <span class="muted small">(false positives, comma-separated)</span><input name="ignore" autocapitalize="off" spellcheck="false" placeholder=""></label>
     <label class="check"><input type="checkbox" name="enabled" checked> Include in automatic scans</label>
     <label class="check" id="scanAfterWrap"><input type="checkbox" name="scanAfter" checked> Start the first scan right after saving</label>

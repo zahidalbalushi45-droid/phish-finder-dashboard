@@ -687,17 +687,34 @@
     f.reset();
     f.name.value = b.name || ""; f.domain.value = b.domain || ""; f.official.value = L.csv(b.official); f.keywords.value = L.csv(b.keywords);
     f.country.value = b.country || ""; f.ignore.value = L.csv(b.ignore); f.enabled.checked = i >= 0 ? L.isEnabled(b.enabled) : true;
+    if (f.autoKeywords) f.autoKeywords.checked = b.auto_keywords !== false && b.auto_keywords !== "false";
+    updateKwPreview();
     f.scanAfter.checked = i < 0;
     $("brandDlgTitle").textContent = i >= 0 ? "Edit " + b.name : "Add a brand";
     msg($("brandMsg"), "");
     $("brandDlg").showModal();
   }
+  function updateKwPreview() {
+    var box = $("kwPreview"), f = $("brandForm");
+    if (!box || !f) return;
+    var on = !f.autoKeywords || f.autoKeywords.checked;
+    box.hidden = false;
+    box.textContent = L.previewKeywords({
+      name: f.name.value, domain: f.domain.value, keywords: f.keywords.value,
+      country: f.country.value, autoKeywords: on
+    });
+  }
+  ["name","domain","keywords","country"].forEach(function (n) {
+    var el = $("brandForm") && $("brandForm")[n];
+    if (el) { el.addEventListener("input", updateKwPreview); el.addEventListener("change", updateKwPreview); }
+  });
+  if ($("brandForm") && $("brandForm").autoKeywords) $("brandForm").autoKeywords.addEventListener("change", updateKwPreview);
   $("addBrandBtn").addEventListener("click", function () { editBrand(-1); });
   $("brandCancel").addEventListener("click", function () { $("brandDlg").close(); });
   $("brandForm").addEventListener("submit", async function (ev) {
     ev.preventDefault();
     var f = this, btn = $("brandSave");
-    var form = { name: f.name.value, domain: f.domain.value, official: f.official.value, keywords: f.keywords.value, country: f.country.value, enabled: f.enabled.checked };
+    var form = { name: f.name.value, domain: f.domain.value, official: f.official.value, keywords: f.keywords.value, country: f.country.value, enabled: f.enabled.checked, autoKeywords: f.autoKeywords ? f.autoKeywords.checked : true };
     var ignore = L.csvList(f.ignore.value).map(L.cleanDomain).filter(Boolean).join(", ");
     var oldName = editing >= 0 ? brands()[editing].name : null, scanAfter = f.scanAfter.checked, nb;
     try {
@@ -741,6 +758,10 @@
     var s = S.sched; if (!s) return;
     Array.prototype.forEach.call(document.querySelectorAll("#freqSeg button"), function (b) { b.classList.toggle("on", b.dataset.freq === s.freq); });
     $("schedTime").value = s.time; $("schedEvery").value = String(s.every); $("schedMode").value = s.mode;
+    if ($("autoKeywordsGlobal")) {
+      var ak = S.cfg && S.cfg.settings && S.cfg.settings.auto_keywords;
+      $("autoKeywordsGlobal").checked = !(ak === false || ak === "false");
+    }
     Array.prototype.forEach.call(document.querySelectorAll("#daysWrap button"), function (b) { b.classList.toggle("on", s.days.indexOf(+b.dataset.day) >= 0); });
     $("timeWrap").hidden = s.freq === "off";
     $("timeLbl").textContent = s.freq === "hours" ? "Starting at (Bahrain)" : "Time (Bahrain)";
@@ -792,7 +813,13 @@
         if (text !== f.text) await putFile(WORKFLOW_PATH, text, f.sha, "Schedule: " + out.label + " (dashboard)");
         S.wf = text;
       }
-      if (modeChanged) await changeBrands(function (cfg) { cfg.settings = cfg.settings || {}; cfg.settings.mode = s.mode; }, "Scheduled scan depth: " + s.mode + " (dashboard)");
+      var wantAk = $("autoKeywordsGlobal") ? $("autoKeywordsGlobal").checked : true;
+      var haveAk = !(S.cfg && S.cfg.settings && (S.cfg.settings.auto_keywords === false || S.cfg.settings.auto_keywords === "false"));
+      if (modeChanged || wantAk !== haveAk) await changeBrands(function (cfg) {
+        cfg.settings = cfg.settings || {};
+        cfg.settings.mode = s.mode;
+        cfg.settings.auto_keywords = wantAk;
+      }, "Scan settings: " + s.mode + " depth, auto-keywords " + (wantAk ? "on" : "off") + " (dashboard)");
       msg($("schedMsg"), "Saved ✓ " + out.label + ", " + s.mode + " depth.", "ok");
       initSchedule(); renderScanForm();
     } catch (e) { msg($("schedMsg"), e.message, "err"); }

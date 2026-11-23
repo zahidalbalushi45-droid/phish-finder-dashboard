@@ -196,7 +196,7 @@
     "#              enabled   - false = keep the brand but skip it in scheduled scans",
     "#   settings.mode - depth of scheduled scans: quick / normal / full"
   ].join("\n");
-  var FIELD_ORDER = ["name", "domain", "official", "keywords", "ignore", "country", "days", "enabled"];
+  var FIELD_ORDER = ["name", "domain", "official", "keywords", "ignore", "country", "days", "enabled", "auto_keywords"];
   var RESERVED = ["y", "yes", "n", "no", "true", "false", "on", "off", "null", "nil", "none"];
 
   function csv(v) {
@@ -243,6 +243,7 @@
     if (b.country !== null && b.country !== undefined && b.country !== "") out.country = String(b.country).trim().toLowerCase();
     if (b.days !== null && b.days !== undefined && b.days !== "") { var d = parseInt(b.days, 10); if (!isNaN(d)) out.days = d; }
     if (!isEnabled(b.enabled)) out.enabled = false;
+    if (b.auto_keywords === false || b.auto_keywords === "false") out.auto_keywords = false;
     Object.keys(b).forEach(function (k) {
       if (FIELD_ORDER.indexOf(k) < 0 && ["string", "number", "boolean"].indexOf(typeof b[k]) >= 0) out[k] = b[k];
     });
@@ -253,7 +254,9 @@
     var lines = [HEADER, ""];
     var mode = String((cfg.settings || {}).mode || "normal").trim().toLowerCase();
     if (MODES.indexOf(mode) < 0) mode = "normal";
-    lines.push("settings:", "  mode: " + mode, "");
+    var ak = (cfg.settings || {}).auto_keywords;
+    var akLine = (ak === false || ak === "false") ? "  auto_keywords: false" : "  auto_keywords: true";
+    lines.push("settings:", "  mode: " + mode, akLine, "");
     var brands = (cfg.brands || []).map(normaliseBrand);
     if (!brands.length) lines.push("brands: []");
     else {
@@ -287,6 +290,7 @@
     var kw = csv(f.keywords); if (kw) b.keywords = kw; else delete b.keywords;
     if (country) b.country = country; else delete b.country;
     if (f.enabled === false) b.enabled = false; else delete b.enabled;
+    if (f.autoKeywords === false || f.auto_keywords === false) b.auto_keywords = false; else delete b.auto_keywords;
     return b;
   }
 
@@ -376,11 +380,94 @@
     return out;
   }
 
+
+  var ARABIC_CC = {sa:1,ae:1,eg:1,bh:1,kw:1,qa:1,om:1,jo:1,iq:1,lb:1,ye:1,ps:1,ly:1,sd:1,dz:1,ma:1,tn:1,mr:1};
+  var GENERIC_AR = { "فوري":1, "فورية":1, "فوريا":1 };
+  var GENERIC_ASCII = { bank:1, pay:1, app:1, online:1, wallet:1, mobile:1, the:1, of:1, and:1, egypt:1, official:1 };
+  var CURRENCY = { eg:["EGP","جنيه"], sa:["SAR","ريال"], ae:["AED","درهم"], bh:["BHD","دينار"], kw:["KWD","دينار"], qa:["QAR","ريال"], om:["OMR","ريال"] };
+  var EN_LURES = ["gift","prize","refund","verify","update","card","otp","delivery","reward","bonus","free","claim","login","wallet","payment","promo","cash","giveaway","birthday"];
+  var AR_LURES = ["هدية","جائزة","استرداد","تحقق","تحديث","بطاقة","رمز التحقق","توصيل","مكافأة","مجاني","دخول","محفظة","كاش","عيد ميلاد","احتفال"];
+
+  function labelOf(domain) {
+    var d = cleanDomain(domain || "");
+    var parts = d.split(".");
+    if (parts.length >= 3 && parts[parts.length-1].length === 2) return parts[0];
+    return parts[0] || "";
+  }
+  function typoVariants(s) {
+    s = String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (s.length < 5 || GENERIC_ASCII[s]) return [];
+    var out = [], seen = {}; seen[s] = 1;
+    function add(v) { if (v && !seen[v]) { seen[v] = 1; out.push(v); } }
+    for (var i = 0; i < s.length - 1 && out.length < 8; i++) add(s.slice(0,i) + s[i+1] + s[i] + s.slice(i+2));
+    for (var j = 0; j < s.length && out.length < 8; j++) add(s.slice(0,j) + s.slice(j+1));
+    return out;
+  }
+  function formVariants(s) {
+    s = String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (s.length < 4 || GENERIC_ASCII[s]) return [];
+    var out = ["my"+s, s+"pay", s+"app", s+"wallet", s+"online"];
+    if (!/bank$/.test(s)) out.push(s+"bank");
+    return out;
+  }
+  function arabicVariants(term) {
+    if (!term || !/[\u0600-\u06FF]/.test(term)) return [];
+    var map = { "أ":"ا","إ":"ا","آ":"ا","ة":"ه","ى":"ي","ؤ":"و","ئ":"ي" };
+    var n = term.replace(/[أإآةىؤئٱ]/g, function (ch) { return map[ch] || ch; });
+    var out = [term];
+    if (n !== term) out.push(n);
+    return out;
+  }
+  function generateKeywords(f) {
+    var name = String((f && f.name) || "").trim();
+    var domain = (f && f.domain) || "";
+    var country = String((f && f.country) || "").trim().toLowerCase();
+    var user = csv((f && f.keywords) || "").split(",").map(function (x) { return x.trim(); }).filter(Boolean);
+    var label = labelOf(domain);
+    var lang = ARABIC_CC[country] ? "ar" : (/[\u0600-\u06FF]/.test(name) ? "ar" : "en");
+    var strong = [], weak = [], text = user.slice(), lures = EN_LURES.slice(), typos = [];
+    if (lang === "ar") lures = lures.concat(AR_LURES);
+    lures = lures.concat(CURRENCY[country] || []);
+    function add(bucket, v) {
+      v = String(v || "").replace(/\s+/g, " ").trim();
+      if (!v || v.length < 3) return;
+      if (GENERIC_AR[v] || GENERIC_ASCII[v.toLowerCase()]) return;
+      if (bucket.some(function (x) { return x.toLowerCase() === v.toLowerCase(); })) return;
+      bucket.push(v);
+    }
+    [label].concat(user.filter(function (x) { return /^[A-Za-z0-9]+$/.test(x); })).forEach(function (s) {
+      formVariants(s).forEach(function (x) { add(strong, x); });
+      typoVariants(s).forEach(function (x) { add(typos, x); add(weak, x); });
+    });
+    [name].concat(user).forEach(function (s) {
+      arabicVariants(s).forEach(function (x) { add(text, x); });
+      if (/[\u0600-\u06FF]/.test(s) && !GENERIC_AR[s] && s.indexOf("ماي ") !== 0) {
+        add(text, "ماي " + s); add(text, s + " باي");
+      }
+    });
+    return { language: lang, country: country || "-", strong: strong, weak: weak, text: text, lures: lures, typos: typos };
+  }
+  function previewKeywords(f) {
+    if (f && (f.autoKeywords === false || f.auto_keywords === false)) {
+      return "Auto-generation is off for this brand. Only the keywords you typed will be used.";
+    }
+    var g = generateKeywords(f || {});
+    function line(label, arr) { return label + ": " + (arr && arr.length ? arr.join(", ") : "—"); }
+    return [
+      "Language " + g.language + " · country " + String(g.country).toUpperCase() + " (generated; bare generic words such as فوري are skipped)",
+      line("Your keywords + text", g.text),
+      line("my/app/pay forms", g.strong),
+      line("Typos", g.typos),
+      line("Lures (title/content only, not domain search)", g.lures)
+    ].join("\n");
+  }
+
   return {
     OFFSET: OFFSET, DAY_NAMES: DAY_NAMES, EVERY_OPTIONS: EVERY_OPTIONS, MODES: MODES,
     buildCron: buildCron, parseCron: parseCron, readSchedule: readSchedule, readScheduleLabel: readScheduleLabel, rewriteSchedule: rewriteSchedule,
     nextRuns: nextRuns, runsPerMonth: runsPerMonth,
     parseBrands: parseBrands, dumpBrands: dumpBrands, normaliseBrand: normaliseBrand, brandFromForm: brandFromForm,
+    generateKeywords: generateKeywords, previewKeywords: previewKeywords,
     isEnabled: isEnabled, csv: csv, csvList: csvList, addToList: addToList, removeFromList: removeFromList,
     toCSV: toCSV, takedownText: takedownText, cleanDomain: cleanDomain, validDomain: validDomain, slug: slug,
     b64EncodeUtf8: b64EncodeUtf8, b64DecodeUtf8: b64DecodeUtf8, safeUrl: safeUrl,
