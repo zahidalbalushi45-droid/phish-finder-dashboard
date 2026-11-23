@@ -750,7 +750,7 @@
     };
   }
   function findingsToCsv(list) {
-    var cols = ["score", "severity", "host", "url", "title", "live", "is_new", "campaign_id", "sources", "reasons", "registrar", "hosting", "created"];
+    var cols = ["score", "severity", "finding_type", "host", "url", "title", "live", "is_new", "campaign_id", "sources", "identifiers", "asset_reuse", "reasons", "registrar", "hosting", "created"];
     function cell(v) {
       v = v === null || v === undefined ? "" : String(v);
       if (/[",\n]/.test(v)) v = '"' + v.replace(/"/g, '""') + '"';
@@ -759,10 +759,13 @@
     var lines = [cols.join(",")];
     list.forEach(function (f) {
       lines.push(cols.map(function (k) {
-        if (k === "url") return cell(f.url || ("https://" + f.host + "/"));
-        if (k === "sources") return cell((f.sources || []).join(";"));
-        if (k === "reasons") return cell((f.reasons || []).join(" | "));
+        if (k === "url") return cell(f.url || (f.host ? ("https://" + f.host + "/") : ""));
+        if (k === "sources") return cell((f.sources || []).join(";") || f.source || "");
+        if (k === "reasons") return cell((f.reasons || []).join(" | ") || f.detail || "");
         if (k === "live") return cell(f.live ? "yes" : "no");
+        if (k === "finding_type") return cell(f.finding_type || f.type || "web");
+        if (k === "identifiers") return cell((f.identifiers || []).map(function (i) { return i && i.kind ? (i.kind + ":" + (i.value || "")) : String(i || ""); }).join(";") || f.identifiers || "");
+        if (k === "asset_reuse") return cell(Array.isArray(f.asset_reuse) ? f.asset_reuse.join(";") : (f.asset_reuse || ""));
         return cell(f[k]);
       }).join(","));
     });
@@ -903,9 +906,87 @@
         h("span", { class: "muted small", text: plural(k.count || 0, "host") + (k.id && k.name && k.id !== k.name ? " · " + k.id : "") })));
     });
 
-    var inc = h("div", { class: "card" },
-      h("div", { class: "row between" }, h("h2", { text: "Incidents" }), h("button", { class: "small", onclick: function () { downloadText(slug + "-incidents.csv", findingsToCsv(findings), "text/csv;charset=utf-8"); } }, "⬇ CSV")),
-      h("p", { class: "muted small", text: "Tap a row for evidence, reasons and lookup links. Links are real: these may be live phishing pages." }));
+    var srcFind = (latest && latest.source_findings) || last.source_findings || [];
+    var officialA = (latest && latest.official_assets) || last.official_assets || {};
+    var reuseMethods = (latest && latest.asset_reuse_methods) || last.asset_reuse_methods || {};
+    function csvAll() {
+      var extra = (srcFind || []).map(function (s) {
+        return Object.assign({}, s, { finding_type: s.type || s.finding_type || "", score: s.score || "", severity: s.severity || "", live: false, reasons: s.detail ? [s.detail] : [], sources: s.source ? [s.source] : [] });
+      });
+      return findingsToCsv(findings.concat(extra));
+    }
+
+    var assetBox = h("div", { class: "card asset-box", "data-sf": "web" }, h("h2", { text: "Official assets" }));
+    if (!officialA || !officialA.generated_utc) {
+      assetBox.appendChild(h("p", { class: "muted small", text: "The next scan will fingerprint this brand's official favicon, logos, scripts and distinctive page text, then search for copies." }));
+    } else {
+      assetBox.appendChild(h("p", { class: "muted small", text: (officialA.reused ? "Reused from the last saved fingerprint · " : "Freshly fingerprinted · ") + (officialA.generated_utc ? L.fmtBahrain(officialA.generated_utc, true) : "") }));
+      var fav = officialA.favicon || {};
+      var bits = [];
+      if (fav.mmh3 !== undefined && fav.mmh3 !== null) bits.push("favicon mmh3 " + fav.mmh3);
+      if (fav.sha256) bits.push("sha256 " + String(fav.sha256).slice(0, 16) + "…");
+      if (officialA.images) bits.push(officialA.images + " logo/image hash(es)");
+      if (officialA.resources) bits.push(officialA.resources + " JS/CSS hash(es)");
+      if (officialA.snippets) bits.push(officialA.snippets + " text snippet(s)");
+      if (bits.length) assetBox.appendChild(h("div", { class: "small kv", text: bits.join(" · ") }));
+      var reuseTxt = Object.keys(reuseMethods).map(function (k) { return k + "=" + reuseMethods[k]; }).join(", ");
+      if (reuseTxt) assetBox.appendChild(h("div", { class: "small", text: "Live pages reusing official assets: " + reuseTxt }));
+      else assetBox.appendChild(h("div", { class: "muted small", text: "No live page in this scan reused these official assets." }));
+    }
+
+    var typeLabels = [
+      ["all", "All"],
+      ["web", "Web"],
+      ["app", "Apps"],
+      ["ad", "Ads"],
+      ["social", "Social"],
+      ["phone_wallet", "Phone & wallet"],
+      ["chatter", "Chatter"]
+    ];
+    var typeCounts = { web: findings.length };
+    (srcFind || []).forEach(function (s) {
+      var typ = s.type || s.finding_type || "web";
+      typeCounts[typ] = (typeCounts[typ] || 0) + 1;
+    });
+    var filterBar = h("div", { class: "card" }, h("h2", { text: "Fraud sources" }), h("p", { class: "muted small", text: "Filter incidents and the other fraud types found for this brand (apps, ads, social accounts, payment identifiers, victim chatter)." }));
+    var chips = h("div", { class: "sf-chips" });
+    typeLabels.forEach(function (pair) {
+      var id = pair[0], label = pair[1];
+      var n = id === "all" ? (findings.length + (srcFind || []).length) : (typeCounts[id] || 0);
+      chips.appendChild(h("button", { class: "sf-chip" + (id === "all" ? " on" : ""), type: "button", onclick: function (ev) {
+        var root = $("brandPage");
+        root.querySelectorAll(".sf-chip").forEach(function (c) { c.classList.remove("on"); });
+        ev.currentTarget.classList.add("on");
+        root.querySelectorAll("[data-sf]").forEach(function (el) {
+          el.hidden = (id !== "all" && el.getAttribute("data-sf") !== id);
+        });
+      } }, label + (n ? " (" + n + ")" : "")));
+    });
+    filterBar.appendChild(chips);
+
+    function sourceSection(type, title, emptyText) {
+      var rows = (srcFind || []).filter(function (s) { return (s.type || s.finding_type) === type; });
+      var box = h("div", { class: "card", "data-sf": type }, h("h2", { text: title + (rows.length ? " (" + rows.length + ")" : "") }));
+      if (!rows.length) {
+        box.appendChild(h("p", { class: "muted small", text: emptyText }));
+        return box;
+      }
+      rows.forEach(function (s) {
+        var row = h("div", { class: "sf-row" });
+        if (s.url) row.appendChild(link(s.url, s.title || s.url));
+        else row.appendChild(h("b", { text: s.title || "(no title)" }));
+        if (s.official_dev === "unofficial") row.appendChild(h("span", { class: "pill sev-high", text: " unofficial developer" }));
+        if (s.shared) row.appendChild(h("span", { class: "pill new", text: " shared identifier" }));
+        if (s.detail) row.appendChild(h("div", { class: "sf-meta", text: s.detail }));
+        if (s.handle || s.platform) row.appendChild(h("div", { class: "sf-meta", text: (s.platform ? s.platform + " · " : "") + (s.handle || "") }));
+        box.appendChild(row);
+      });
+      return box;
+    }
+
+    var inc = h("div", { class: "card", "data-sf": "web" },
+      h("div", { class: "row between" }, h("h2", { text: "Incidents" }), h("button", { class: "small", onclick: function () { downloadText(slug + "-incidents.csv", csvAll(), "text/csv;charset=utf-8"); } }, "⬇ CSV")),
+      h("p", { class: "muted small", text: "Tap a row for evidence, reasons and lookup links. Links are real: these may be live phishing pages. The CSV also includes apps, ads, social, payment identifiers and chatter." }));
     if (!findings.length) inc.appendChild(h("p", { class: "muted", text: "No incidents in the last scan." }));
     findings.sort(function (a, b) { return (b.score || 0) - (a.score || 0); }).forEach(function (f) {
       inc.appendChild(findingRow(f, false));
@@ -923,8 +1004,14 @@
       L.csv(cfgB.ignore) ? h("div", { class: "small muted", text: "Ignoring: " + L.csv(cfgB.ignore) }) : null,
       idx >= 0 ? h("button", { class: "small", style: "margin-top:8px", onclick: function () { editBrand(idx); } }, "✏️ Edit settings") : null);
 
+    var appBox = sourceSection("app", "Fake apps", "No lookalike or unofficial apps were found in the last scan.");
+    var adBox = sourceSection("ad", "Scam ads", "No Meta or Google ads were extracted in the last scan. Meta's official API is reliable mainly for ads that reached the EU.");
+    var socBox = sourceSection("social", "Fake social, Telegram and WhatsApp", "No impersonating accounts or customer-service WhatsApp numbers were found in the last scan.");
+    var payBox = sourceSection("phone_wallet", "Phone numbers and payment details", "No shared phones, WhatsApp, wallet or bank details were extracted from fetched pages.");
+    var chatBox = sourceSection("chatter", "Victim chatter", "No public posts about this brand and a scam were found in the last scan.");
+
     clear(box);
-    [head, counts, when, campBox, kitBox, inc, histBox, settings].forEach(function (el) { box.appendChild(el); });
+    [head, counts, when, campBox, kitBox, filterBar, assetBox, inc, appBox, adBox, socBox, payBox, chatBox, histBox, settings].forEach(function (el) { box.appendChild(el); });
   }
 
   async function scanOne(name) {

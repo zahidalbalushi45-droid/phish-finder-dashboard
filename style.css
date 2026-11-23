@@ -187,3 +187,11 @@ details.inc-detail .detail-body{padding:0 12px 12px;font-size:13px}
 .hunt-help{margin:0 0 10px}
 .hunt-row{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 12px}
 .hunt-input{flex:1 1 auto;min-width:0;height:44px;box-sizing:border-box;border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:10px;padding:0 12px;font-size:14px}
+
+.sf-chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}
+.sf-chip{border:1px solid var(--line);background:var(--soft);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+.sf-chip.on{background:var(--priSoft);border-color:var(--pri);color:var(--pri);font-weight:600}
+.sf-row{padding:10px 0;border-top:1px solid var(--line)}
+.sf-row:first-child{border-top:0}
+.sf-meta{color:var(--mut);font-size:13px;margin-top:2px}
+.asset-box .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
