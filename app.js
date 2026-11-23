@@ -145,9 +145,10 @@
     } finally { busy(false); }
     renderAll();
   }
-  async function dispatchScan(brand, mode) {
+  async function dispatchScan(brand, mode, huntUrl) {
     var inputs = { mode: mode || "default" };
     if (brand) inputs.brand = brand;
+    if (huntUrl) inputs.hunt_url = huntUrl;
     await api(repoPath("/actions/workflows/" + WORKFLOW + "/dispatches"), { method: "POST", body: { ref: "main", inputs: inputs } });
     [3000, 8000, 15000].forEach(function (t) { setTimeout(loadRuns, t); });
   }
@@ -868,6 +869,16 @@
     });
 
     var campBox = h("div", { class: "card" }, h("h2", { text: "Campaigns" }));
+    campBox.appendChild(h("p", { class: "muted small hunt-help", text: "Every scan hunts campaigns automatically: lure phrases, the brand's native-script name and free-host subdomains seed urlscan (plus any link you paste below). Hits are confirmed on a mobile client with a WhatsApp referer (DOM, logo/OCR or title), fingerprinted, expanded up to depth 3, clustered, and saved so later scans recognise new copies." }));
+    var huntRow = h("div", { class: "hunt-row" });
+    var huntIn = h("input", { type: "url", class: "hunt-input", placeholder: "Paste a live campaign link", autocomplete: "off" });
+    huntRow.appendChild(huntIn);
+    huntRow.appendChild(h("button", { class: "small primary", type: "button", onclick: function () { huntFromLink(cfgB.name, huntIn.value); } }, "Hunt from this link"));
+    campBox.appendChild(huntRow);
+    var learned = (latest && latest.learned_fingerprints) || last.learned_fingerprints || [];
+    if (learned.length) {
+      campBox.appendChild(h("div", { class: "muted small", text: "Learned fingerprints saved from the last hunt: " + learned.length + " (titles, image/JS hashes, path tokens, trackers). Later scans use these automatically, including after you add a new brand — nothing is hardcoded per brand." }));
+    }
     if (!camps.length) campBox.appendChild(h("p", { class: "muted small", text: "No clustered campaigns yet. Sibling sites that share a title, image, script or path will appear here after a scan." }));
     camps.forEach(function (c) {
       campBox.appendChild(h("div", { class: "camp" },
@@ -919,6 +930,14 @@
   async function scanOne(name) {
     if (!confirm("Start a " + settingsMode() + " scan of " + name + " now?")) return;
     try { await dispatchScan(name, settingsMode()); toast("Scan of " + name + " started"); go("home"); } catch (e) { toast(e.message); }
+  }
+  async function huntFromLink(name, raw) {
+    var url = String(raw || "").trim();
+    if (!url) { toast("Paste a live link first"); return; }
+    if (!/^https?:\/\//i.test(url)) url = "https://" + url;
+    if (DEMO) { toast("Connect the dashboard to GitHub to start a hunt from a link"); return; }
+    if (!confirm("Start a campaign hunt for " + name + " from this link?\n" + url)) return;
+    try { await dispatchScan(name, settingsMode(), url); toast("Campaign hunt of " + name + " started"); go("home"); } catch (e) { toast(e.message); }
   }
   async function toggleBrand(i) {
     var b = brands()[i], name = b.name, on = L.isEnabled(b.enabled);
