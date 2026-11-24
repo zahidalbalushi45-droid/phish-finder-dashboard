@@ -57,7 +57,8 @@ function writeDemo() {
       summaryBrand("Bank Muscat", "bank-muscat", "bankmuscat.com", { top: [top("ucat.cc", 20, "low")] }),
       summaryBrand("Abu dhabi commercial bank", "abu-dhabi-commercial-bank", "adcb.com", { top: [Object.assign(top("adcb-otp.pages.dev", 56, "high"), {
         shots: { m: "shots/abu-dhabi-commercial-bank/adcb-otp.pages.dev-m.webp" }, confirmed: true, live_state: "live",
-        alert: { utc: "2026-11-24T20:00:00+00:00", issue: 1 }, render: { brand: ["ADCB"], inputs: { otp: 1 }, fraud: ["OTP/PIN"] } })] }),
+        alert: { utc: "2026-11-24T20:00:00+00:00", issue: 1 }, render: { brand: ["ADCB"], inputs: { otp: 1 }, fraud: ["OTP/PIN"] },
+        pivot: { via: ["ip 203.0.113.7 via thc"], from: ["adcb-old.pages.dev"], kit: [{ kind: "supabase_ref", hosts: ["adcb-old.pages.dev"] }] } })] }),
     ]
   };
   fs.writeFileSync(path.join(demo, "summary.json"), JSON.stringify(summary));
@@ -212,7 +213,8 @@ async function main() {
   await page.waitForSelector("#findingDlg[open] img.shot-m", { timeout: 8000 });
   await page.waitForFunction(() => { const i = document.querySelector("#findingDlg img.shot-m"); return i && i.complete && i.naturalWidth > 0; }, { timeout: 8000 });
   const dlg = await page.$eval("#findingDlg", (d) => d.innerText);
-  assert.ok(/live, confirmed phishing/.test(dlg) && /alerted/.test(dlg) && /Phone 390/.test(dlg) && /Phone render shows the brand: ADCB/.test(dlg), dlg.slice(0, 600));
+  assert.ok(/live, confirmed phishing/.test(dlg) && /alerted/.test(dlg) && /Phone 390/.test(dlg) && /Phone render shows the brand: ADCB/.test(dlg)
+    && /found by indicator pivot: ip 203\.0\.113\.7 via thc/.test(dlg) && /same supabase_ref as adcb-old/.test(dlg), dlg.slice(0, 900));
 
   await browser.close();
   srv.close();

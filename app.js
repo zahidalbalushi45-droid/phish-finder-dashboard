@@ -571,6 +571,12 @@
       f.alert ? h("span", { class: "pill", text: "🔔 alerted " + (f.alert.utc ? L.fmtBahrain(f.alert.utc, true) : "") + (f.alert.issue ? " · issue #" + f.alert.issue : "") }) : null,
       f.alert && f.alert.down_since ? h("span", { class: "pill", text: "down since " + L.fmtBahrain(f.alert.down_since, true) }) : null,
       f.recheck && f.recheck.promoted ? h("span", { class: "pill new", text: "promoted by re-check" }) : null));
+    if (f.pivot) {
+      var pv = [];
+      if ((f.pivot.via || []).length) pv.push("found by indicator pivot: " + f.pivot.via.join("; ") + ((f.pivot.from || []).length ? " (from " + f.pivot.from.join(", ") + ")" : ""));
+      (f.pivot.kit || []).forEach(function (m) { pv.push("same " + m.kind + " as " + (m.hosts || []).join(", ")); });
+      inner.appendChild(h("div", {}, h("span", { class: "pill new", text: "indicator pivot" }), h("div", { class: "small muted", style: "overflow-wrap:anywhere", text: pv.join(" · ") })));
+    }
     inner.appendChild(h("div", { class: "warnbox", text: "⚠ Real link – may be a live phishing page. Never enter real details." }));
     var sb = shotsBlock(f);
     if (sb) { inner.appendChild(h("h3", { text: "Screenshots (scanner's own browser)" })); inner.appendChild(sb); }
@@ -799,7 +805,7 @@
       gsb: gsb.state || "", first_cert: f.first_cert || "", campaign_id: f.campaign_id || "", campaign_new: !!f.campaign_new,
       kit: (p.kit_fingerprint && (p.kit_fingerprint.id || p.kit_fingerprint.name)) || f.kit_seed || "",
       logo_match: p.logo_match || "", ocr: p.ocr_brand_hits || [],
-      shots: fullShots(f, slug), render: fullRender(f), recheck: f.recheck || null,
+      shots: fullShots(f, slug), render: fullRender(f), recheck: f.recheck || null, pivot: f.pivot ? { via: (f.pivot.via || []).slice(0, 3), from: (f.pivot.from || []).slice(0, 3), kit: (f.pivot.kit_matches || []).slice(0, 3).map(function (m) { return { kind: m.kind, hosts: (m.hosts || []).slice(0, 2) }; }) } : null,
       brand: brand, brandSlug: slug, brandDomain: domain, scanned: null
     };
   }
@@ -880,7 +886,7 @@
     return ((latest && latest.findings) || last.top || []).map(function (f) {
       if (f.probe || f.rdap) {
         var c = compactFullFinding(f, cfgB.name, slug, cfgB.domain), t = fromSummary[f.host] || {};
-        ["confirmed", "live_state", "alert", "excluded"].forEach(function (k) { if (t[k] !== undefined) c[k] = t[k]; });
+        ["confirmed", "live_state", "alert", "excluded", "pivot"].forEach(function (k) { if (t[k] !== undefined) c[k] = t[k]; });
         if (!c.shots && t.shots) c.shots = t.shots;
         return c;
       }
