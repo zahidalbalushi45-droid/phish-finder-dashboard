@@ -498,6 +498,39 @@
     ].join("\n");
   }
 
+
+  /* Summarise GitHub Actions jobs for a live scan progress bar.
+     Works for a single job (old workflow) and for a matrix of Plan / Scan <brand> / Publish jobs. */
+  function progressFromJobs(jobs) {
+    jobs = (jobs || []).filter(function (j) { return j && j.status !== "skipped"; });
+    if (!jobs.length) return { pct: 4, label: "Starting…", done: 0, total: 0, current: "" };
+    var done = jobs.filter(function (j) { return j.status === "completed"; }).length;
+    var cur = jobs.find(function (j) { return j.status === "in_progress"; });
+    var step = cur && (cur.steps || []).find(function (s) { return s.status === "in_progress"; });
+    var frac = done;
+    if (cur && cur.steps && cur.steps.length) {
+      frac += cur.steps.filter(function (s) { return s.status === "completed"; }).length / cur.steps.length;
+    }
+    var pct = done === jobs.length ? 100 : Math.max(4, Math.min(99, Math.round(100 * frac / jobs.length)));
+    var longJob = !!(cur && /^scan /i.test(cur.name));
+    var longStep = !!(step && /^run scan$/i.test(step.name));
+    var label;
+    if (step && cur) {
+      var nm = step.name;
+      if (cur.name && nm.toLowerCase() !== cur.name.toLowerCase() && nm.toLowerCase().indexOf(String(cur.name).toLowerCase()) !== 0) {
+        nm = cur.name + " — " + nm;
+      }
+      label = "Now: " + nm + (longJob || longStep ? " (the long part)" : "");
+    } else if (cur) {
+      label = "Now: " + cur.name + (longJob ? " (the long part)" : "");
+    } else if (jobs.some(function (j) { return j.status === "queued" || j.status === "waiting" || j.status === "requested"; })) {
+      label = done ? "Waiting for the next job…" : "Waiting for a GitHub runner…";
+    } else {
+      label = "Starting…";
+    }
+    return { pct: pct, label: label, done: done, total: jobs.length, current: cur ? cur.name : "" };
+  }
+
   return {
     OFFSET: OFFSET, DAY_NAMES: DAY_NAMES, EVERY_OPTIONS: EVERY_OPTIONS, MODES: MODES,
     buildCron: buildCron, parseCron: parseCron, readSchedule: readSchedule, readScheduleLabel: readScheduleLabel, rewriteSchedule: rewriteSchedule,
@@ -507,6 +540,6 @@
     isEnabled: isEnabled, csv: csv, csvList: csvList, addToList: addToList, removeFromList: removeFromList,
     toCSV: toCSV, takedownText: takedownText, cleanDomain: cleanDomain, validDomain: validDomain, slug: slug,
     b64EncodeUtf8: b64EncodeUtf8, b64DecodeUtf8: b64DecodeUtf8, safeUrl: safeUrl,
-    fmtBahrain: fmtBahrain, fmtDuration: fmtDuration, zipEntries: zipEntries
+    fmtBahrain: fmtBahrain, fmtDuration: fmtDuration, zipEntries: zipEntries, progressFromJobs: progressFromJobs
   };
 });

@@ -112,7 +112,19 @@
       var d = await api(repoPath("/contents/" + path + (ref ? "?ref=" + encodeURIComponent(ref) : "")));
       if (!d || d.type !== "file") return null;
       var text = d.content ? L.b64DecodeUtf8(d.content) : "";
-      if (!d.content && d.size > 0) text = await api(repoPath("/contents/" + path + "?ref=" + encodeURIComponent(ref || "main")), { accept: "application/vnd.github.raw+json" }).then(function (x) { return typeof x === "string" ? x : JSON.stringify(x); });
+      if (!text && d.size > 0) {
+        /* Contents API omits base64 for files over 1 MB (current brand reports). Use the blob API, then raw as a fallback. */
+        if (d.sha) {
+          try {
+            var blob = await api(repoPath("/git/blobs/" + d.sha));
+            if (blob && blob.content) text = L.b64DecodeUtf8(blob.content);
+          } catch (e1) { /* fall through to raw */ }
+        }
+        if (!text) {
+          var raw = await api(repoPath("/contents/" + path + "?ref=" + encodeURIComponent(ref || "main")), { accept: "application/vnd.github.raw+json" });
+          text = typeof raw === "string" ? raw : JSON.stringify(raw);
+        }
+      }
       return { text: text, sha: d.sha };
     } catch (e) { if (e.status === 404) return null; throw e; }
   }
@@ -296,7 +308,7 @@
     S.runs = d.workflow_runs || [];
     var active = S.runs.filter(function (r) { return r.status !== "completed"; });
     await Promise.all(active.slice(0, 3).map(function (r) {
-      return api(repoPath("/actions/runs/" + r.id + "/jobs")).then(function (j) { S.jobs[r.id] = (j.jobs || [])[0]; }).catch(function () { });
+      return api(repoPath("/actions/runs/" + r.id + "/jobs?per_page=100")).then(function (j) { S.jobs[r.id] = j.jobs || []; }).catch(function () { });
     }));
     renderRuns(); renderLive(); previewSched();
     if (S.runs.some(function (r) { return before.indexOf(r.id) >= 0 && r.status === "completed"; })) {
@@ -331,7 +343,7 @@
   }
   function isCritHigh(f) { return f.severity === "critical" || f.severity === "high"; }
   function needsAction(f) { return f.st === "open" || f.st === "reviewing"; }
-  function hasLogin(f) { return f.flags.indexOf("password") >= 0 || f.flags.indexOf("sensitive") >= 0 || (f.reasons || []).some(function (r) { return /login|password|otp|card/i.test(r); }); }
+  function hasLogin(f) { var flags = f.flags || []; return flags.indexOf("password") >= 0 || flags.indexOf("sensitive") >= 0 || (f.reasons || []).some(function (r) { return /login|password|otp|card/i.test(String(r)); }); }
 
   function renderAll() {
     if (!S.cfg) return;
@@ -370,7 +382,8 @@
     brands().forEach(function (b) { sel.appendChild(h("option", { value: b.name, text: b.name + (L.isEnabled(b.enabled) ? "" : " (paused)") })); });
     sel.value = prev;
     if (!$("scanMode").dataset.touched) $("scanMode").value = settingsMode();
-    var crons = L.readSchedule(S.wf || "");
+    var crons = [];
+    try { crons = L.readSchedule(S.wf || ""); } catch (e) { crons = []; }
     var nx = crons.length ? L.nextRuns(crons, new Date(), 1)[0] : null;
     $("nextScanLine").textContent = nx ? "Next auto: " + L.fmtBahrain(nx, true) : "Auto scans off";
   }
@@ -451,7 +464,7 @@
       h("div", { class: "body" },
         h("div", { class: "host" }, f.host, " ", f.is_new ? h("span", { class: "pill new", text: "NEW" }) : null, statusPill(f.st)),
         h("div", { class: "meta" }, f.live ? h("span", { class: "pill", text: "live" }) : null, hasLogin(f) ? h("span", { class: "pill", text: "login" }) : null, (f.sources || []).indexOf("feeds") >= 0 ? h("span", { class: "pill", text: "on feeds" }) : null, meta),
-        compact ? null : h("div", { class: "why", text: (f.reasons || []).map(function (r) { return r.replace(/^[+-]\d+\s*/, ""); }).join(" · ") })),
+        compact ? null : h("div", { class: "why", text: (f.reasons || []).map(function (r) { return String(r).replace(/^[+-]\d+\s*/, ""); }).join(" · ") })),
       h("span", { class: "chev", text: "›" }));
   }
   function filtered() {
@@ -780,35 +793,43 @@
   async function loadBrandLatest(slug) {
     S.latest = S.latest || {};
     if (S.latest[slug]) return S.latest[slug];
+    var paths = [slug + "/latest.json", slug + "/" + slug + "/latest.json"];
     try {
       var data = null;
       if (DEMO) {
-        var r = await fetch("demo/" + slug + "/latest.json", { cache: "no-store" });
-        if (r.ok) data = await r.json();
+        for (var i = 0; i < paths.length && !data; i++) {
+          var r = await fetch("demo/" + paths[i], { cache: "no-store" });
+          if (r.ok) data = await r.json();
+        }
       } else {
-        var f = await getFile(slug + "/latest.json", "state");
-        if (f && f.text) data = JSON.parse(f.text);
+        for (var j = 0; j < paths.length && !data; j++) {
+          var f = await getFile(paths[j], "state");
+          if (f && f.text) data = JSON.parse(f.text);
+        }
       }
       if (data) S.latest[slug] = data;
       return data;
     } catch (e) { return null; }
   }
-  async function renderBrandPage() {
-    var slug = S.brandSlug, box = $("brandPage");
-    if (!box) return;
-    var cfgB = brands().find(function (b) { return L.slug(b.name) === slug; });
-    var last = lastFor(slug) || ((S.summary && S.summary.brands) || []).find(function (b) { return b.slug === slug; }) || {};
-    if (!cfgB && last.name) cfgB = { name: last.name, domain: last.domain, country: last.country };
-    if (!cfgB) { clear(box).appendChild(h("p", { class: "muted", text: "Brand not found." })); return; }
-    var idx = brands().indexOf(cfgB);
-    clear(box).appendChild(h("div", { class: "skeleton" }));
-    var latest = await loadBrandLatest(slug);
-    if (S.brandSlug !== slug) return;
-    var meta = (latest && latest.brand) || {};
-    var findings = ((latest && latest.findings) || last.top || []).map(function (f) {
+  function assetCount(v) {
+    if (Array.isArray(v)) return v.length;
+    if (typeof v === "number" && isFinite(v)) return v;
+    return 0;
+  }
+  function brandFindings(latest, last, cfgB, slug) {
+    return ((latest && latest.findings) || last.top || []).map(function (f) {
       if (f.probe || f.rdap) return compactFullFinding(f, cfgB.name, slug, cfgB.domain);
-      return Object.assign({}, f, { brand: cfgB.name, brandSlug: slug, brandDomain: cfgB.domain });
+      return Object.assign({}, f, {
+        brand: cfgB.name, brandSlug: slug, brandDomain: cfgB.domain,
+        flags: f.flags || [], reasons: f.reasons || [], sources: f.sources || []
+      });
     });
+  }
+  function paintBrandPage(cfgB, last, latest, idx, loading) {
+    var slug = L.slug(cfgB.name) || S.brandSlug, box = $("brandPage");
+    if (!box) return;
+    var meta = (latest && latest.brand) || {};
+    var findings = brandFindings(latest, last, cfgB, slug);
     findings.forEach(function (f) { f.st = (((S.triage || {}).hosts || {})[f.host] || {}).status || "open"; });
     var camps = (latest && latest.campaigns) || last.campaigns || [];
     var kits = last.kits || [];
@@ -823,6 +844,15 @@
       kits = Object.keys(seen).map(function (k) { return seen[k]; });
     }
     var sc = severityCounts(last);
+    if ((!sc.total || loading === false) && latest && latest.stats) {
+      var st = latest.stats || {};
+      var sev = st.severity || st;
+      sc = {
+        c: sev.critical || 0, h: sev.high || 0, m: sev.medium || 0,
+        total: st.total || findings.length || 0,
+        neu: st.new_count || last.new_count || 0
+      };
+    }
     var nxt = nextAutoScan();
     var hist = (S.history || []).slice().reverse().map(function (r) {
       var b = (r.brands || []).find(function (x) { return (x.slug || L.slug(x.name)) === slug; });
@@ -859,8 +889,9 @@
 
     var when = h("div", { class: "card" },
       h("h2", { text: "Scans" }),
-      h("div", { text: last.generated_utc ? ("Last scan " + L.fmtBahrain(last.generated_utc, true) + (last.duration_s ? " · took " + L.fmtDuration(last.duration_s) : "") + (last.depth ? " · " + last.depth : "")) : "Not scanned yet" }),
+      h("div", { text: last.generated_utc || (latest && latest.generated_utc) ? ("Last scan " + L.fmtBahrain(last.generated_utc || latest.generated_utc, true) + ((last.duration_s || (latest && latest.duration_s)) ? " · took " + L.fmtDuration(last.duration_s || latest.duration_s) : "") + (last.depth || (latest && latest.depth) ? " · " + (last.depth || latest.depth) : "")) : "Not scanned yet" }),
       h("div", { class: "muted small", text: nxt ? ("Next scheduled scan " + L.fmtBahrain(nxt, true)) : "Automatic scans are off" }),
+      loading ? h("div", { class: "muted small", text: "Loading the full report…" }) : null,
       sparkline(slug) ? h("div", { class: "trend", style: "margin-top:10px" }, sparkline(slug)) : null);
 
     var histBox = h("div", { class: "card" }, h("h2", { text: "Scan history" }));
@@ -894,7 +925,8 @@
           (c.first_seen ? " · first " + L.fmtBahrain(c.first_seen, true) : "") +
           (c.last_seen ? " · last " + L.fmtBahrain(c.last_seen, true) : "") }),
         h("div", { class: "small camp-hosts" }, (c.hosts || []).slice(0, 12).map(function (host, i) {
-          return h("span", {}, i ? " · " : "", link("https://" + host + "/", host));
+          var hostName = typeof host === "string" ? host : (host && (host.host || host.url)) || "";
+          return h("span", {}, i ? " · " : "", link("https://" + hostName + "/", hostName || String(host)));
         }))));
     });
 
@@ -925,11 +957,12 @@
       var bits = [];
       if (fav.mmh3 !== undefined && fav.mmh3 !== null) bits.push("favicon mmh3 " + fav.mmh3);
       if (fav.sha256) bits.push("sha256 " + String(fav.sha256).slice(0, 16) + "…");
-      if (officialA.images) bits.push(officialA.images + " logo/image hash(es)");
-      if (officialA.resources) bits.push(officialA.resources + " JS/CSS hash(es)");
-      if (officialA.snippets) bits.push(officialA.snippets + " text snippet(s)");
+      var nImg = assetCount(officialA.images), nRes = assetCount(officialA.resources), nSni = assetCount(officialA.snippets);
+      if (nImg) bits.push(nImg + " logo/image hash(es)");
+      if (nRes) bits.push(nRes + " JS/CSS hash(es)");
+      if (nSni) bits.push(nSni + " text snippet(s)");
       if (bits.length) assetBox.appendChild(h("div", { class: "small kv", text: bits.join(" · ") }));
-      var reuseTxt = Object.keys(reuseMethods).map(function (k) { return k + "=" + reuseMethods[k]; }).join(", ");
+      var reuseTxt = Object.keys(reuseMethods || {}).map(function (k) { return k + "=" + reuseMethods[k]; }).join(", ");
       if (reuseTxt) assetBox.appendChild(h("div", { class: "small", text: "Live pages reusing official assets: " + reuseTxt }));
       else assetBox.appendChild(h("div", { class: "muted small", text: "No live page in this scan reused these official assets." }));
     }
@@ -966,10 +999,10 @@
 
     function sourceSection(type, title, emptyText) {
       var rows = (srcFind || []).filter(function (s) { return (s.type || s.finding_type) === type; });
-      var box = h("div", { class: "card", "data-sf": type }, h("h2", { text: title + (rows.length ? " (" + rows.length + ")" : "") }));
+      var sbox = h("div", { class: "card", "data-sf": type }, h("h2", { text: title + (rows.length ? " (" + rows.length + ")" : "") }));
       if (!rows.length) {
-        box.appendChild(h("p", { class: "muted small", text: emptyText }));
-        return box;
+        sbox.appendChild(h("p", { class: "muted small", text: emptyText }));
+        return sbox;
       }
       rows.forEach(function (s) {
         var row = h("div", { class: "sf-row" });
@@ -979,18 +1012,24 @@
         if (s.shared) row.appendChild(h("span", { class: "pill new", text: " shared identifier" }));
         if (s.detail) row.appendChild(h("div", { class: "sf-meta", text: s.detail }));
         if (s.handle || s.platform) row.appendChild(h("div", { class: "sf-meta", text: (s.platform ? s.platform + " · " : "") + (s.handle || "") }));
-        box.appendChild(row);
+        sbox.appendChild(row);
       });
-      return box;
+      return sbox;
     }
 
     var inc = h("div", { class: "card", "data-sf": "web" },
       h("div", { class: "row between" }, h("h2", { text: "Incidents" }), h("button", { class: "small", onclick: function () { downloadText(slug + "-incidents.csv", csvAll(), "text/csv;charset=utf-8"); } }, "⬇ CSV")),
       h("p", { class: "muted small", text: "Tap a row for evidence, reasons and lookup links. Links are real: these may be live phishing pages. The CSV also includes apps, ads, social, payment identifiers and chatter." }));
     if (!findings.length) inc.appendChild(h("p", { class: "muted", text: "No incidents in the last scan." }));
-    findings.sort(function (a, b) { return (b.score || 0) - (a.score || 0); }).forEach(function (f) {
-      inc.appendChild(findingRow(f, false));
-    });
+    findings.sort(function (a, b) { return (b.score || 0) - (a.score || 0); });
+    var shown = S.brandShown || 60;
+    findings.slice(0, shown).forEach(function (f) { inc.appendChild(findingRow(f, false)); });
+    if (findings.length > shown) {
+      inc.appendChild(h("button", { class: "wide", type: "button", onclick: function () {
+        S.brandShown = shown + 100;
+        paintBrandPage(cfgB, last, latest, idx, loading);
+      } }, "Show more (" + (findings.length - shown) + " left)"));
+    }
 
     var settings = h("div", { class: "card" },
       h("h2", { text: "Auto-generated keywords & settings" }),
@@ -1012,6 +1051,31 @@
 
     clear(box);
     [head, counts, when, campBox, kitBox, filterBar, assetBox, inc, appBox, adBox, socBox, payBox, chatBox, histBox, settings].forEach(function (el) { box.appendChild(el); });
+  }
+  async function renderBrandPage() {
+    var slug = S.brandSlug, box = $("brandPage");
+    if (!box) return;
+    var cfgB = brands().find(function (b) { return L.slug(b.name) === slug; });
+    var last = lastFor(slug) || ((S.summary && S.summary.brands) || []).find(function (b) { return b.slug === slug; }) || {};
+    if (!cfgB && last.name) cfgB = { name: last.name, domain: last.domain, country: last.country };
+    if (!cfgB) { clear(box).appendChild(h("p", { class: "muted", text: "Brand not found." })); return; }
+    var idx = brands().indexOf(cfgB);
+    if (S.brandPageSlug !== slug) { S.brandPageSlug = slug; S.brandShown = 60; }
+    var cached = S.latest && S.latest[slug];
+    function paint(data, loading) {
+      try { paintBrandPage(cfgB, last, data, idx, loading); }
+      catch (e) {
+        clear(box).appendChild(h("div", { class: "card" },
+          h("p", { text: "Couldn't open this brand's details." }),
+          h("p", { class: "muted small", text: e.message || String(e) })));
+      }
+    }
+    /* Paint immediately from the summary so the page is never a stuck skeleton while the full report loads. */
+    paint(cached || null, !cached);
+    if (cached) return;
+    var latest = await loadBrandLatest(slug);
+    if (S.brandSlug !== slug) return;
+    paint(latest, false);
   }
 
   async function scanOne(name) {
@@ -1209,11 +1273,12 @@
       h("div", { class: "small muted", text: [dur, hi ? hi.mode : "", brandsTxt].filter(Boolean).join(" · ") }),
       hi ? h("div", {}, h("span", { class: "pill " + (hi.new_findings ? "new" : ""), text: hi.new_findings ? hi.new_findings + " new findings" : "no new findings" })) : null);
     if (active) {
-      var job = S.jobs[r.id], steps = (job && job.steps) || [];
-      var done = steps.filter(function (s) { return s.status === "completed"; }).length, cur = steps.find(function (s) { return s.status === "in_progress"; });
-      var pct = steps.length ? Math.max(4, Math.round(100 * done / steps.length)) : 4;
-      body.appendChild(h("div", { class: "progress" }, h("span", { style: "width:" + pct + "%" })));
-      body.appendChild(h("div", { class: "small muted", text: cur ? "Now: " + cur.name + (cur.name === "Run scan" ? " (the long part)" : "") : r.status === "queued" ? "Waiting for a GitHub runner…" : "Starting…" }));
+      var jobs = S.jobs[r.id];
+      if (jobs && !Array.isArray(jobs)) jobs = [jobs];
+      var prog = L.progressFromJobs(jobs || []);
+      if (r.status === "queued" && !prog.total) prog = { pct: 4, label: "Waiting for a GitHub runner…" };
+      body.appendChild(h("div", { class: "progress" }, h("span", { style: "width:" + prog.pct + "%" })));
+      body.appendChild(h("div", { class: "small muted", text: prog.label }));
     }
     var side = h("div", { style: "display:flex;flex-direction:column;gap:6px;align-items:flex-end" }, link(r.html_url, "Open"));
     if (active) side.appendChild(h("button", { class: "small danger", onclick: function () { cancelRun(r); } }, "Stop"));
