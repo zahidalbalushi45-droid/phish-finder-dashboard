@@ -128,6 +128,31 @@
       return { text: text, sha: d.sha };
     } catch (e) { if (e.status === 404) return null; throw e; }
   }
+  /* Screenshot from the private state branch -> data: URL (cached). Demo mode reads demo/<path>. */
+  var IMG_CACHE = {};
+  async function getImage(path) {
+    if (!path || !/^(shots|alerts)\/[A-Za-z0-9._\/-]+\.(webp|jpg|jpeg|png)$/.test(path)) return null;
+    if (IMG_CACHE[path]) return IMG_CACHE[path];
+    if (DEMO) return (IMG_CACHE[path] = "demo/" + path);
+    var d = await api(repoPath("/contents/" + path + "?ref=state"));
+    if (!d || !d.content) return null;
+    var ext = path.split(".").pop().toLowerCase(), mime = ext === "webp" ? "image/webp" : ext === "png" ? "image/png" : "image/jpeg";
+    return (IMG_CACHE[path] = "data:" + mime + ";base64," + String(d.content).replace(/\s+/g, ""));
+  }
+  function shotsBlock(f) {
+    var sh = f.shots || {};
+    if (!sh.m && !sh.d) return null;
+    var wrap = h("div", { class: "shots" });
+    [["m", "📱 Phone 390×844"], ["d", "🖥 Desktop"]].forEach(function (k) {
+      if (!sh[k[0]]) return;
+      var img = h("img", { alt: k[1] + " screenshot of " + f.host, loading: "lazy", class: "shot shot-" + k[0] });
+      var fig = h("figure", {}, img, h("figcaption", { class: "small muted", text: k[1] }));
+      wrap.appendChild(fig);
+      getImage(sh[k[0]]).then(function (u) { if (u) { img.src = u; img.onclick = function () { window.open(u, "_blank"); }; } else fig.remove(); })
+        .catch(function () { fig.remove(); });
+    });
+    return wrap;
+  }
   async function putFile(path, text, sha, message) {
     var body = { message: message, content: L.b64EncodeUtf8(text), branch: "main" };
     if (sha) body.sha = sha;
@@ -541,7 +566,22 @@
       h("button", { class: "small", onclick: function () { $("findingDlg").close(); } }, "✕")));
     inner.appendChild(h("div", {}, f.is_new ? h("span", { class: "pill new", text: "NEW" }) : null, statusPill(f.st), f.live ? h("span", { class: "pill", text: "live (HTTP " + (f.status || "?") + ")" }) : h("span", { class: "pill", text: "not live" }),
       f.flags.map(function (x) { return h("span", { class: "pill", text: { password: "password field", sensitive: "asks for sensitive data", exfil: "sends data out", parked: "parked", down: "taken down", "cf-block": "Cloudflare warning", gsb: "Google flagged", mx: "can send e-mail" }[x] || x }); })));
+    if (f.confirmed || f.alert) inner.appendChild(h("div", {},
+      f.confirmed ? h("span", { class: "pill confirmed", text: "✔ live, confirmed phishing (" + (f.live_state || "live") + ")" }) : null,
+      f.alert ? h("span", { class: "pill", text: "🔔 alerted " + (f.alert.utc ? L.fmtBahrain(f.alert.utc, true) : "") + (f.alert.issue ? " · issue #" + f.alert.issue : "") }) : null,
+      f.alert && f.alert.down_since ? h("span", { class: "pill", text: "down since " + L.fmtBahrain(f.alert.down_since, true) }) : null,
+      f.recheck && f.recheck.promoted ? h("span", { class: "pill new", text: "promoted by re-check" }) : null));
     inner.appendChild(h("div", { class: "warnbox", text: "⚠ Real link – may be a live phishing page. Never enter real details." }));
+    var sb = shotsBlock(f);
+    if (sb) { inner.appendChild(h("h3", { text: "Screenshots (scanner's own browser)" })); inner.appendChild(sb); }
+    if (f.render) {
+      var rbits = [];
+      if ((f.render.brand || []).length) rbits.push("shows the brand: " + f.render.brand.join(", "));
+      var ins = Object.keys(f.render.inputs || {}).filter(function (k) { return k !== "total"; });
+      if (ins.length) rbits.push("input fields: " + ins.map(function (k) { return k + " ×" + f.render.inputs[k]; }).join(", "));
+      if ((f.render.fraud || []).length) rbits.push("text: " + f.render.fraud.join(", "));
+      if (rbits.length) inner.appendChild(h("div", { class: "small muted", text: "Phone render " + rbits.join(" · ") }));
+    }
     inner.appendChild(h("div", { style: "font-size:14px" }, link(url, url)));
     if (f.feed_url && f.feed_url !== url) inner.appendChild(h("div", { class: "small" }, "Also seen at: ", link(f.feed_url, f.feed_url)));
     if (f.title) inner.appendChild(h("div", { class: "small muted", text: "Page title: “" + f.title + "”" }));
@@ -759,8 +799,26 @@
       gsb: gsb.state || "", first_cert: f.first_cert || "", campaign_id: f.campaign_id || "", campaign_new: !!f.campaign_new,
       kit: (p.kit_fingerprint && (p.kit_fingerprint.id || p.kit_fingerprint.name)) || f.kit_seed || "",
       logo_match: p.logo_match || "", ocr: p.ocr_brand_hits || [],
+      shots: fullShots(f, slug), render: fullRender(f), recheck: f.recheck || null,
       brand: brand, brandSlug: slug, brandDomain: domain, scanned: null
     };
+  }
+  /* latest.json stores screenshot file names; on the state branch they live in shots/<slug>/. */
+  function fullShots(f, slug) {
+    var s = f.shots || {}, out = {};
+    ["m", "d"].forEach(function (k) {
+      var v = s[k];
+      if (v && /^[A-Za-z0-9._-]+\.(webp|jpg|jpeg|png)$/.test(v)) out[k] = "shots/" + slug + "/" + v;
+      else if (v && /^shots\//.test(v)) out[k] = v;
+    });
+    return (out.m || out.d) ? out : null;
+  }
+  function fullRender(f) {
+    var m = (f.render && f.render.mobile) || null;
+    if (!m) return null;
+    var ins = {};
+    Object.keys(m.inputs || {}).forEach(function (k) { if (m.inputs[k]) ins[k] = m.inputs[k]; });
+    return { title: m.title || "", brand: m.brand_hits || [], fraud: m.fraud_signals || [], inputs: ins, status: m.status };
   }
   function findingsToCsv(list) {
     var cols = ["score", "severity", "finding_type", "host", "url", "title", "live", "is_new", "campaign_id", "sources", "identifiers", "asset_reuse", "reasons", "registrar", "hosting", "created"];
@@ -817,8 +875,15 @@
     return 0;
   }
   function brandFindings(latest, last, cfgB, slug) {
+    var fromSummary = {};
+    (last.top || []).forEach(function (t) { if (t && t.host) fromSummary[t.host] = t; });
     return ((latest && latest.findings) || last.top || []).map(function (f) {
-      if (f.probe || f.rdap) return compactFullFinding(f, cfgB.name, slug, cfgB.domain);
+      if (f.probe || f.rdap) {
+        var c = compactFullFinding(f, cfgB.name, slug, cfgB.domain), t = fromSummary[f.host] || {};
+        ["confirmed", "live_state", "alert", "excluded"].forEach(function (k) { if (t[k] !== undefined) c[k] = t[k]; });
+        if (!c.shots && t.shots) c.shots = t.shots;
+        return c;
+      }
       return Object.assign({}, f, {
         brand: cfgB.name, brandSlug: slug, brandDomain: cfgB.domain,
         flags: f.flags || [], reasons: f.reasons || [], sources: f.sources || []

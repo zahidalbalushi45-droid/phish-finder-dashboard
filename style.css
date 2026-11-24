@@ -195,3 +195,10 @@ details.inc-detail .detail-body{padding:0 12px 12px;font-size:13px}
 .sf-row:first-child{border-top:0}
 .sf-meta{color:var(--mut);font-size:13px;margin-top:2px}
 .asset-box .kv{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;overflow-wrap:anywhere}
+
+.shots{display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px}
+.shots figure{margin:0;flex:0 0 auto}
+.shots img.shot{display:block;border-radius:12px;border:1px solid var(--line,#ddd);background:#fff;cursor:zoom-in}
+.shots img.shot-m{width:156px;height:338px;object-fit:cover;object-position:top}
+.shots img.shot-d{width:280px;height:175px;object-fit:cover;object-position:top}
+.pill.confirmed{background:#fde2e1;color:#b42318;font-weight:700}

@@ -55,10 +55,16 @@ function writeDemo() {
       summaryBrand("Alex Bank", "alex-bank", "alexbank.com", { top: [top("lexbank.us", 40, "medium")] }),
       summaryBrand("Al Hilal Bank", "al-hilal-bank", "alhilalbank.ae", { top: [top("alhilal.live", 30, "medium")] }),
       summaryBrand("Bank Muscat", "bank-muscat", "bankmuscat.com", { top: [top("ucat.cc", 20, "low")] }),
-      summaryBrand("Abu dhabi commercial bank", "abu-dhabi-commercial-bank", "adcb.com", { top: [top("adcb-otp.pages.dev", 56, "high")] }),
+      summaryBrand("Abu dhabi commercial bank", "abu-dhabi-commercial-bank", "adcb.com", { top: [Object.assign(top("adcb-otp.pages.dev", 56, "high"), {
+        shots: { m: "shots/abu-dhabi-commercial-bank/adcb-otp.pages.dev-m.webp" }, confirmed: true, live_state: "live",
+        alert: { utc: "2026-11-24T20:00:00+00:00", issue: 1 }, render: { brand: ["ADCB"], inputs: { otp: 1 }, fraud: ["OTP/PIN"] } })] }),
     ]
   };
   fs.writeFileSync(path.join(demo, "summary.json"), JSON.stringify(summary));
+  fs.mkdirSync(path.join(demo, "shots", "abu-dhabi-commercial-bank"), { recursive: true });
+  // 1x1 WebP
+  fs.writeFileSync(path.join(demo, "shots", "abu-dhabi-commercial-bank", "adcb-otp.pages.dev-m.webp"),
+    Buffer.from("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA", "base64"));
   fs.writeFileSync(path.join(demo, "history.json"), "[]");
   fs.copyFileSync(path.join(__dirname, "fixture-phish-scan.yml"), path.join(demo, "phish-scan.yml"));
 
@@ -104,7 +110,7 @@ function writeDemo() {
 
 function contentType(file) {
   return ({ ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".json": "application/json",
-    ".yml": "text/yaml", ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json" })[path.extname(file)] || "application/octet-stream";
+    ".yml": "text/yaml", ".svg": "image/svg+xml", ".png": "image/png", ".webmanifest": "application/manifest+json", ".webp": "image/webp" })[path.extname(file)] || "application/octet-stream";
 }
 
 function startServer() {
@@ -198,9 +204,20 @@ async function main() {
   await page.goto(base + "#brand/abu-dhabi-commercial-bank", { waitUntil: "networkidle0" });
   await assertBrandOpen("Abu dhabi commercial bank", ["adcb-otp.pages.dev"]);
 
+  // 5. Incident view shows the scanner's own phone screenshot, confirmation and alert status
+  await page.evaluate(() => {
+    const row = [...document.querySelectorAll("#brandPage .finding")].find((r) => r.innerText.includes("adcb-otp.pages.dev"));
+    row.click();
+  });
+  await page.waitForSelector("#findingDlg[open] img.shot-m", { timeout: 8000 });
+  await page.waitForFunction(() => { const i = document.querySelector("#findingDlg img.shot-m"); return i && i.complete && i.naturalWidth > 0; }, { timeout: 8000 });
+  const dlg = await page.$eval("#findingDlg", (d) => d.innerText);
+  assert.ok(/live, confirmed phishing/.test(dlg) && /alerted/.test(dlg) && /Phone 390/.test(dlg) && /Phone render shows the brand: ADCB/.test(dlg), dlg.slice(0, 600));
+
   await browser.close();
   srv.close();
   console.log("ok - brand cards open a filled detail view on a mobile viewport (including no-flags findings and nested latest.json)");
+  console.log("ok - incident view shows the phone screenshot, confirmed and alerted status");
 }
 
 main().catch((e) => { console.error(e); process.exit(1); });
